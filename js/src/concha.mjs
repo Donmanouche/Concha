@@ -76,7 +76,7 @@ async function evaluate(code) {
     ok: true,
     miniLocations: state.miniLocations ?? [],
     widgets: (state.widgets ?? []).map((w) => ({ type: w.type, from: w.from, to: w.to, value: w.value })),
-    sliders: (state.sliders ?? []).map((s) => ({ from: s.from, to: s.to, value: s.value, min: s.min, max: s.max })),
+    sliders: (state.sliders ?? []).map((s) => ({ from: s.from, to: s.to, value: String(s.value), min: s.min, max: s.max, step: s.step })),
   };
 }
 

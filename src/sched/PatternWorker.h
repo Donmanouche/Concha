@@ -18,6 +18,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <memory>
+#include <deque>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -50,6 +51,24 @@ public:
         uint64_t queries = 0;
         double worstQueryMs = 0.0;
         uint64_t droppedEvents = 0;   // ring full or sysex too long
+        uint32_t activeGeneration = 0; // changes with each new code (activeCodeInfo())
+    };
+
+    // For the editor, after each new code: its mini-notation ranges, sliders, the known sounds.
+    struct ActiveCodeInfo {
+        uint32_t generation = 0;
+        std::vector<std::pair<int, int>> miniLocations;
+        std::vector<EvalResult::Slider> sliders;
+        std::vector<std::string> soundNames;
+    };
+    ActiveCodeInfo activeCodeInfo() const;
+
+    // A queried hap, for highlighting its code ranges while it plays (cycles, whole).
+    struct VisualHap {
+        double begin = 0, end = 0;
+        uint32_t generation = 0;
+        std::string color; // hap.value.color, if any
+        std::vector<std::pair<int, int>> locations;
     };
 
     PatternWorker(SpscRing<SchedEvent>& toAudio, SeqLock<TransportState>& transport, SeqLock<SwapPoint>& swap);
@@ -64,6 +83,12 @@ public:
 
     Status status() const;
     std::vector<LogMessage> takeLog();
+
+    // A slider widget moved: its value, for the playing code (applied on the query thread).
+    void setSlider(std::string id, double value);
+
+    // The haps playing at `cycle` (begin <= cycle < end); old ones are dropped. Any thread.
+    std::vector<VisualHap> activeHaps(double cycle);
 
     // Test hook: true once the events up to (lap, ppq) have been queued.
     bool queuedUpTo(int32_t lap, double ppq) const;
@@ -88,6 +113,13 @@ private:
     std::optional<std::string> pendingCode_;
     bool swapPending_ = false;
     std::string standbyCode_;
+    ActiveCodeInfo activeInfo_; // guarded by mutex_
+    std::vector<std::pair<int, int>> standbyMini_;
+    std::vector<EvalResult::Slider> standbySliders_;
+    std::vector<std::pair<std::string, double>> sliderMoves_; // guarded by mutex_
+    std::vector<std::string> standbySounds_;
+    std::mutex visualMutex_;
+    std::deque<VisualHap> visual_;
     Status status_;
     std::vector<LogMessage> log_;
 

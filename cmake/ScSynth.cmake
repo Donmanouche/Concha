@@ -62,3 +62,42 @@ target_compile_definitions(concha_scsynth
     PRIVATE "SC_PLUGIN_DIR=\"/usr/lib/SuperCollider/plugins\"" "SC_PLUGIN_EXT=\".so\"")
 target_compile_options(concha_scsynth PRIVATE -w)
 target_link_libraries(concha_scsynth PUBLIC concha_sc_boost concha_sc_tlsf PkgConfig::CONCHA_SNDFILE Threads::Threads ${CMAKE_DL_LIBS})
+
+# ---- UGens, compiled in (STATIC_PLUGINS): no dependency on an installed SuperCollider ----
+# SuperCollider's own plug-ins, and the sc3-plugins families SuperDirt's SynthDefs use.
+# Each plug-in's PluginLoad(Name) becomes Name_Load(); scsynth calls the core ones from
+# initialize_library(), concha_sc_new() calls the others (src/sc/SC_HostDriver.cpp).
+set(CONCHA_SC3_DIR "${CONCHA_SHARED_DEPS}/sc3-plugins-3.13.0" CACHE PATH "sc3-plugins source checkout")
+set(SCP "${SC}/server/plugins")
+set(SC3P "${CONCHA_SC3_DIR}/source")
+if(NOT EXISTS "${SC3P}/MdaUGens/MdaUGens.cpp")
+    message(FATAL_ERROR "sc3-plugins sources not found at ${CONCHA_SC3_DIR}")
+endif()
+add_library(concha_sc_ugens STATIC
+    ${SCP}/BinaryOpUGens.cpp ${SCP}/ChaosUGens.cpp ${SCP}/DelayUGens.cpp ${SCP}/DemandUGens.cpp ${SCP}/DemoUGens.cpp
+    ${SCP}/DynNoiseUGens.cpp ${SCP}/FilterUGens.cpp ${SCP}/GendynUGens.cpp ${SCP}/GrainUGens.cpp ${SCP}/IOUGens.cpp
+    ${SCP}/LFUGens.cpp ${SCP}/MulAddUGens.cpp ${SCP}/NoiseUGens.cpp ${SCP}/OscUGens.cpp ${SCP}/PanUGens.cpp
+    ${SCP}/PhysicalModelingUGens.cpp ${SCP}/ReverbUGens.cpp ${SCP}/TestUGens.cpp ${SCP}/TriggerUGens.cpp
+    ${SCP}/UnaryOpUGens.cpp ${SCP}/UnpackFFTUGens.cpp ${SCP}/DiskIO_UGens.cpp
+    ${SCP}/FFTInterfaceTable.cpp ${SCP}/FFT_UGens.cpp ${SCP}/PV_UGens.cpp ${SCP}/PartitionedConvolution.cpp
+    ${SCP}/Convolution.cpp ${SCP}/FFT2InterfaceTable.cpp ${SCP}/FeatureDetection.cpp ${SCP}/PV_ThirdParty.cpp
+    ${SCP}/ML.cpp ${SCP}/Loudness.cpp ${SCP}/BeatTrack.cpp ${SCP}/Onsets.cpp ${SCP}/onsetsds.c ${SCP}/KeyTrack.cpp
+    ${SCP}/MFCC.cpp ${SCP}/BeatTrack2.cpp ${SCP}/ML_SpecStats.cpp
+    ${SC3P}/MCLDUGens/MCLDDistortionUGens.cpp
+    ${SC3P}/MembraneUGens/Membrane.cpp ${SC3P}/MembraneUGens/Membrane_shape.c
+    ${SC3P}/MdaUGens/MdaUGens.cpp
+    ${SC3P}/SkUGens/FM7.cpp
+    ${SC3P}/AYUGens/AY_UGen.cpp ${SC3P}/AYUGens/AY_libayemu/src/ay8912.c
+    ${SC3P}/DistortionUGens/DistortionUGens.cpp
+    ${SC3P}/BlackrainUGens/BlackrainUGens.cpp)
+set_target_properties(concha_sc_ugens PROPERTIES CXX_STANDARD 17 CXX_VISIBILITY_PRESET hidden C_VISIBILITY_PRESET hidden
+    POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(concha_sc_ugens PRIVATE STATIC_PLUGINS SC_MEMORY_ALIGNMENT=32 NOVA_SIMD)
+target_include_directories(concha_sc_ugens PRIVATE
+    "${SC}/include/common" "${SC}/include/plugin_interface" "${SC}/include/server" "${SC}/common" "${SCP}"
+    "${SC}/external_libraries/nova-simd" "${SC}/external_libraries/boost" "${SC}/external_libraries"
+    "${SC3P}/AYUGens/AY_libayemu/include" "${SC3P}/MdaUGens" "${SC3P}/MembraneUGens")
+target_compile_options(concha_sc_ugens PRIVATE -w -fno-finite-math-only)
+target_link_libraries(concha_sc_ugens PRIVATE PkgConfig::CONCHA_SNDFILE)
+target_compile_definitions(concha_scsynth PRIVATE STATIC_PLUGINS)
+target_link_libraries(concha_scsynth PUBLIC concha_sc_ugens)

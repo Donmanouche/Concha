@@ -78,11 +78,32 @@ clap_juce_extensions_plugin(TARGET Concha
     CLAP_ID "org.zencha.concha"
     CLAP_FEATURES instrument synthesizer note-effect sampler)
 
+# Strudel's function reference for the editor (help, completion), from the JSDoc of its packages
+set(CONCHA_DOCS ${PROJECT_BINARY_DIR}/js/docs.json)
+add_custom_command(
+    OUTPUT ${CONCHA_DOCS}
+    COMMAND ${CONCHA_NODE} ${PROJECT_SOURCE_DIR}/js/tools/gen-docs.mjs ${PROJECT_SOURCE_DIR}/third_party/strudel/packages ${CONCHA_DOCS}
+    DEPENDS ${concha_js_inputs} ${PROJECT_SOURCE_DIR}/js/tools/gen-docs.mjs
+    COMMENT "Extracting Strudel's function reference"
+    VERBATIM)
+add_custom_command(
+    OUTPUT ${PROJECT_BINARY_DIR}/js/EmbeddedDocs.cpp
+    COMMAND concha_embed ${CONCHA_DOCS} ${PROJECT_BINARY_DIR}/js/EmbeddedDocs.cpp concha embeddedDocs
+    DEPENDS concha_embed ${CONCHA_DOCS}
+    COMMENT "Embedding the function reference"
+    VERBATIM)
+
 target_sources(Concha PRIVATE
     src/plugin/PluginProcessor.cpp
     src/plugin/PluginEditor.cpp
     src/plugin/LibraryPanel.cpp
-    src/plugin/SyncProbe.cpp)
+    src/plugin/SyncProbe.cpp
+    src/plugin/ui/Theme.cpp
+    src/plugin/ui/JsTokeniser.cpp
+    src/plugin/ui/DocIndex.cpp
+    src/plugin/ui/CodeView.cpp
+    src/plugin/ui/Panels.cpp
+    ${PROJECT_BINARY_DIR}/js/EmbeddedDocs.cpp)
 
 target_include_directories(Concha PRIVATE src)
 
@@ -105,6 +126,12 @@ target_link_libraries(Concha
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Off-screen snapshot of the editor with a pattern playing (UI checks without a DAW).
+add_executable(concha_ui_shot tools/ui_shot/ui_shot.cpp)
+target_link_libraries(concha_ui_shot PRIVATE Concha)
+target_include_directories(concha_ui_shot PRIVATE src $<TARGET_PROPERTY:Concha,INCLUDE_DIRECTORIES>)
+target_compile_definitions(concha_ui_shot PRIVATE $<TARGET_PROPERTY:Concha,COMPILE_DEFINITIONS>)
 
 option(CONCHA_BUILD_TESTS "Build the unit tests" ON)
 if(CONCHA_BUILD_TESTS)

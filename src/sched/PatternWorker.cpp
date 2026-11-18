@@ -121,15 +121,23 @@ void PatternWorker::queryLoop()
     while (running_.load()) {
         const TransportState t = transport_.load();
         bool swapped = false;
+        std::vector<std::pair<std::string, double>> moves;
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            moves.swap(sliderMoves_);
             if (swapPending_) {
                 active_ = 1 - active_;
                 swapPending_ = false;
                 status_.activeCode = standbyCode_;
+                status_.activeGeneration = codeGeneration_ + 1;
+                activeInfo_.generation = status_.activeGeneration;
+                activeInfo_.miniLocations = standbyMini_;
+                activeInfo_.sliders = standbySliders_;
+                activeInfo_.soundNames = standbySounds_;
                 swapped = true;
             }
         }
+        for (const auto& [id, value] : moves) engines_[active_]->setSlider(id, value); // active_ only changes here
         if (swapped) {
             ++codeGeneration_;
             // New code starts a little after the playhead; events of the old code from there on are
@@ -201,6 +209,18 @@ void PatternWorker::evalLoop()
                 while (!options_.library->isLoaded(id) && Clock::now() < until)
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
+        std::vector<std::string> sounds; // for the editor's sound list
+        if (r.ok) {
+            std::string json;
+            if (standby->evalJson("concha.soundNames()", json)) {
+                for (size_t i = 0; (i = json.find('"', i)) != std::string::npos;) {
+                    const size_t j = json.find('"', i + 1);
+                    if (j == std::string::npos) break;
+                    sounds.push_back(json.substr(i + 1, j - i - 1));
+                    i = j + 1;
+                }
+            }
+        }
         auto messages = standby->takeLog();
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& m : messages)
@@ -213,6 +233,9 @@ void PatternWorker::evalLoop()
         if (r.ok) {
             swapPending_ = true; // on error the current code keeps playing, as in Strudel
             standbyCode_ = code;
+            standbyMini_ = r.miniLocations;
+            standbySliders_ = r.sliders;
+            standbySounds_ = sounds;
         } else if (log_.size() < 1000) {
             log_.push_back({"error", r.error});
         }
@@ -280,6 +303,34 @@ void PatternWorker::runQueries(const TransportState& t)
     }
 }
 
+PatternWorker::ActiveCodeInfo PatternWorker::activeCodeInfo() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return activeInfo_;
+}
+
+void PatternWorker::setSlider(std::string id, double value)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& m : sliderMoves_)
+        if (m.first == id) {
+            m.second = value;
+            return;
+        }
+    sliderMoves_.emplace_back(std::move(id), value);
+}
+
+std::vector<PatternWorker::VisualHap> PatternWorker::activeHaps(double cycle)
+{
+    std::vector<VisualHap> out;
+    std::lock_guard<std::mutex> lock(visualMutex_);
+    // drop what has ended long ago, and what a jump back left far ahead
+    while (!visual_.empty() && (visual_.front().end < cycle - 4 || visual_.front().begin > cycle + 16)) visual_.pop_front();
+    for (const auto& v : visual_)
+        if (v.begin <= cycle && cycle < v.end) out.push_back(v);
+    return out;
+}
+
 void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const TransportState& t, int32_t lap,
                                double chunkStartPpq)
 {
@@ -288,6 +339,20 @@ void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const Tr
     const double loopLen = t.loopEnd - t.loopStart;
     uint64_t dropped = 0;
 
+    {
+        std::lock_guard<std::mutex> lock(visualMutex_);
+        for (const PatternEvent& e : events) {
+            if (e.locations.empty() || e.kind == "midimsg" && e.locations.empty()) continue;
+            if (visual_.size() >= 8192) visual_.pop_front();
+            VisualHap v;
+            v.begin = e.begin;
+            v.end = e.end;
+            v.generation = codeGeneration_;
+            if (const ParamValue* c = e.find("color"); c && c->type == ParamValue::Type::String) v.color = c->string;
+            v.locations = e.locations;
+            visual_.push_back(std::move(v));
+        }
+    }
     for (const PatternEvent& e : events) {
         SchedEvent ev;
         ev.epoch = epoch_;

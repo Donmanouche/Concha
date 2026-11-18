@@ -1,6 +1,6 @@
 #pragma once
 
-// "Samples" panel: the user's named sample folders (none by default). Each folder has the name
+// "Sample folders" panel: the user's named sample folders (none by default). Each folder has the name
 // used in code (samples('Name'), .bank("Name")), its path, and "load at start".
 
 #include "library/SampleLibrary.h"
@@ -25,7 +25,7 @@ private:
     struct Row final : juce::Component {
         juce::TextEditor name;
         juce::Label path;
-        juce::ToggleButton autoload{"au demarrage"};
+        juce::ToggleButton autoload{"load at start"};
         juce::TextButton remove{"x"};
         void resized() override;
     };
@@ -39,7 +39,7 @@ private:
     std::vector<std::unique_ptr<Row>> rows_;
     juce::Viewport viewport_;
     juce::Component list_;
-    juce::TextButton add_{"Ajouter un dossier..."}, close_{"Fermer"};
+    juce::TextButton add_{"Add a folder..."}, close_{"Close"};
     juce::Label help_;
     std::unique_ptr<juce::FileChooser> chooser_;
 };

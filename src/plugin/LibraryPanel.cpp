@@ -18,9 +18,9 @@ void LibraryPanel::Row::resized()
 
 LibraryPanel::LibraryPanel(std::function<void()> onChanged) : onChanged_(std::move(onChanged))
 {
-    help_.setText("Dossiers de samples nommes. Dans le code : samples('Nom') ou samples('lib:Nom'), puis s(\"son\"). "
-                  "Coche \"au demarrage\" pour les avoir sans samples(). Un sous-dossier = un son ; "
-                  "Banque/banque-bd/*.wav donne .bank(\"Banque\").",
+    help_.setText("Named sample folders. In code: samples('Name') or samples('lib:Name'), then s(\"sound\"). "
+                  "Tick \"load at start\" to have them without samples(). A sub-folder = a sound; "
+                  "Bank/bank-bd/*.wav gives .bank(\"Bank\").",
                   juce::dontSendNotification);
     help_.setColour(juce::Label::textColourId, kDim);
     help_.setJustificationType(juce::Justification::topLeft);
@@ -42,10 +42,10 @@ void LibraryPanel::paint(juce::Graphics& g)
     g.fillAll(kPanel);
     g.setColour(kText);
     g.setFont(juce::Font(juce::FontOptions(18.0f, juce::Font::bold)));
-    g.drawText("Samples", 16, 10, 300, 24, juce::Justification::centredLeft);
+    g.drawText("Sample folders", 16, 10, 300, 24, juce::Justification::centredLeft);
     if (folders_.empty()) {
         g.setColour(kDim);
-        g.drawText("Aucun dossier pour l'instant.", viewport_.getBounds().reduced(8), juce::Justification::topLeft);
+        g.drawText("No folder yet.", viewport_.getBounds().reduced(8), juce::Justification::topLeft);
     }
 }
 
@@ -87,7 +87,7 @@ void LibraryPanel::rebuild()
             folders_[i].autoload = rows_[i]->autoload.getToggleState();
             commit();
         };
-        row->remove.setTooltip("Retirer ce dossier de la bibliotheque (les fichiers ne sont pas touches)");
+        row->remove.setTooltip("Remove this folder from the library (its files are not touched)");
         row->remove.onClick = [this, i] {
             if (i >= folders_.size()) return;
             folders_.erase(folders_.begin() + long(i));
@@ -114,7 +114,7 @@ void LibraryPanel::commit()
 
 void LibraryPanel::addFolder()
 {
-    chooser_ = std::make_unique<juce::FileChooser>("Dossier de samples", juce::File::getSpecialLocation(juce::File::userMusicDirectory));
+    chooser_ = std::make_unique<juce::FileChooser>("Sample folder", juce::File::getSpecialLocation(juce::File::userMusicDirectory));
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
                           [this](const juce::FileChooser& fc) {
                               const auto dir = fc.getResult();

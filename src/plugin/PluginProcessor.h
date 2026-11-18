@@ -8,6 +8,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
 #include <atomic>
 
 namespace concha {
@@ -72,6 +73,16 @@ public:
         return log;
     }
     const AudioScheduler::Stats& schedulerStats() const { return scheduler_.stats(); }
+    PatternWorker::ActiveCodeInfo activeCodeInfo() const { return worker_.activeCodeInfo(); }
+    void setSlider(const juce::String& id, double value) { worker_.setSlider(id.toStdString(), value); }
+    // For the editor: haps playing at `cycle`, and the output peaks since the last call.
+    std::vector<PatternWorker::VisualHap> activeHaps(double cycle) { return worker_.activeHaps(cycle); }
+    std::array<float, kNumStereoBuses> takePeaks()
+    {
+        std::array<float, kNumStereoBuses> out{};
+        for (size_t i = 0; i < out.size(); ++i) out[i] = peaks_[i].exchange(0.f, std::memory_order_relaxed);
+        return out;
+    }
 
 private:
     static BusesProperties makeBuses();
@@ -96,6 +107,7 @@ private:
     double sampleRate_ = 48000.0;
     double freeRunPpq_ = 0.0;
     TransportView view_;
+    std::array<std::atomic<float>, kNumStereoBuses> peaks_{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ConchaProcessor)
 };

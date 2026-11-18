@@ -163,6 +163,14 @@ void ConchaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     BlockSink sink(midi, superdough_, sampleRate_, N);
     scheduler_.process(host, numSamples, N, sink);
     superdough_.render(busChannels.data(), numBuses, numSamples);
+    for (int b = 0; b < numBuses; ++b) { // meters
+        const auto i = static_cast<size_t>(b);
+        if (!buses[i]) continue;
+        float peak = 0.f;
+        for (int c = 0; c < buses[i]->getNumChannels(); ++c) peak = std::max(peak, buses[i]->getMagnitude(c, 0, numSamples));
+        float prev = peaks_[i].load(std::memory_order_relaxed);
+        while (peak > prev && !peaks_[i].compare_exchange_weak(prev, peak, std::memory_order_relaxed)) {}
+    }
 
     if (probe_->load() > 0.5f) probeGen_.process(t, numSamples, buses.data(), numBuses, midi);
 }

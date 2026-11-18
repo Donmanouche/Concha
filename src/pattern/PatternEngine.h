@@ -36,6 +36,12 @@ struct EvalResult {
     bool ok = false;
     std::string error;
     std::vector<std::pair<int, int>> miniLocations; // mini-notation ranges, for highlighting
+    struct Slider {
+        int from = 0, to = 0;    // the value's range in the code; its id is "slider_<from>"
+        std::string value;       // as written
+        double min = 0, max = 1, step = 0; // step 0: (max - min) / 1000
+    };
+    std::vector<Slider> sliders; // slider(value, min, max, step) calls, for the editor's widgets
     double milliseconds = 0.0;
 };
 

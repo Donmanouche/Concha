@@ -388,6 +388,19 @@ EvalResult PatternEngine::evaluate(std::string_view code)
                 Value l = locs.at(i);
                 res.miniLocations.emplace_back(int(l.at(0).number()), int(l.at(1).number()));
             }
+            Value sl = r.get("sliders");
+            for (uint32_t i = 0, n = JS_IsArray(sl.v) ? sl.length() : 0; i < n; ++i) {
+                Value s = sl.at(i);
+                EvalResult::Slider x;
+                x.from = int(s.get("from").number());
+                x.to = int(s.get("to").number());
+                x.value = s.get("value").string();
+                const double mn = s.get("min").number(), mx = s.get("max").number(), st = s.get("step").number();
+                x.min = std::isnan(mn) ? 0.0 : mn;
+                x.max = std::isnan(mx) ? 1.0 : mx;
+                x.step = std::isnan(st) ? 0.0 : st;
+                res.sliders.push_back(std::move(x));
+            }
         }
     }
     I.disarm();

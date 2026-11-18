@@ -6,7 +6,7 @@ portable). AGPL-3.0-or-later. The user writes in French; answer in French.
 Plan: `docs/PLAN.md` (approved). Results: `docs/PHASE0.md` (spikes, Bitwig checklist), `docs/PHASE1.md` (pattern engine,
 parity with Strudel's snapshots, performance), `docs/PHASE2.md` (scheduler, sync, MIDI out, Bitwig checklist), `docs/PHASE3.md` (superdough C++ v1, sample library), `docs/PHASE4.md` (4a: effects, orbits, sources;
 4b: compressor, zzfx, bytebeat, wavetables, transient, lfo/env/bmod on every target, buses, ir, FM matrix, FX chains with
-fxi, stretch, K(); phase 4 is complete).
+fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.cc-like REPL, English UI).
 
 ## Rules from the user
 
@@ -51,8 +51,11 @@ fxi, stretch, K(); phase 4 is complete).
   `SampleStore`. `src/sched/SoundConvert` maps hap values to SoundParams and logs unsupported controls.
 - `src/library`: `SampleLibrary` (process-wide: named folders in ~/.config/Concha/library.txt, http cache in
   ~/.cache/Concha/http, loader threads), `Decoder` (dr_libs, stb_vorbis), `LibraryHost` (JS natives).
-- `src/plugin` (JUCE processor, editor with Ctrl+Enter / Ctrl+., `LibraryPanel` = "Samples" panel,
-  phase 0 SyncProbe), `src/sc` (embedded scsynth). `tools/concha_render` renders code to a WAV.
+- `src/plugin` (JUCE processor, `PluginEditor` = window: top bar, code, tabs; `LibraryPanel` = sample folders,
+  phase 0 SyncProbe). `src/plugin/ui`: `CodeView` (CodeEditorComponent + playing-hap outlines, flash, sliders,
+  completion), `JsTokeniser`, `Theme` (strudel.cc colours, flat tabs), `DocIndex` (reference from
+  `js/tools/gen-docs.mjs`, embedded), `Panels` (console, reference, sounds, settings, meters). UI prefs live in
+  the processor's ValueTree (saved with the project). `tools/ui_shot`: off-screen PNG of the window, playing., `src/sc` (embedded scsynth). `tools/concha_render` renders code to a WAV.
 - Parity suite: `js/test/make-cases.mjs`, `js/test/check.mjs`, `js/test/known-differences.json` (each entry is a
   difference caused by Strudel's test runtime, not by Concha; keep "unexplained" at 0).
 
@@ -95,4 +98,6 @@ Bitwig: `~/.clap/Concha.clap`, `~/.vst3/Concha.vst3` (copy after a build when th
 - Voices reading a bus (s("bus"), bmod) render after the writers; stretched sounds start 40 ms + 128 samples early.
 - Reference harness: bmod is not comparable offline (onended callback); @kabelsalat/core must resolve to its module
   build (mainFields).
+- UI tests and concha_ui_shot link the plug-in's shared-code target (Concha) and need an X display.
+- PatternWorker::activeCodeInfo() (mini locations, sliders, sound names) is read only when the generation changes.
 - Pattern threads rely on the 8 MB Linux default stack (QuickJS limit 6 MB): give them an explicit stack on Windows.

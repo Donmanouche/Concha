@@ -1,18 +1,24 @@
 #pragma once
 
+// Concha's window, laid out like strudel.cc: the code takes the window, a side panel with tabs
+// (Console, Reference, Sounds, Settings) folds away, the top bar holds update / stop, the transport
+// and the meters of the 16 outputs, the bottom line the engine's status.
+
 #include "plugin/LibraryPanel.h"
 #include "plugin/PluginProcessor.h"
+#include "plugin/ui/CodeView.h"
+#include "plugin/ui/JsTokeniser.h"
+#include "plugin/ui/Panels.h"
+#include "plugin/ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_opengl/juce_opengl.h>
 
-#include <functional>
+#include <memory>
 
 namespace concha {
 
-// Phase 2 window: code box (Ctrl+Enter evaluates, Ctrl+. hushes), status line, console.
-// The full editor (highlighting, playing haps, completion) is phase 5.
-class ConchaEditor final : public juce::AudioProcessorEditor, private juce::Timer {
+class ConchaEditor final : public juce::AudioProcessorEditor, private juce::Timer, private juce::CodeDocument::Listener {
 public:
     explicit ConchaEditor(ConchaProcessor&);
     ~ConchaEditor() override;
@@ -21,32 +27,39 @@ public:
     void resized() override;
 
 private:
-    // TextEditor that hands Ctrl+Enter / Ctrl+. to the editor instead of typing them.
-    struct CodeBox final : juce::TextEditor {
-        std::function<void()> onEvaluate, onHush;
-        bool keyPressed(const juce::KeyPress& key) override;
-    };
-
     void timerCallback() override;
-    void appendConsole(const juce::String& line, juce::Colour colour);
+    void codeDocumentTextInserted(const juce::String&, int) override;
+    void codeDocumentTextDeleted(int, int) override;
+    void evaluate();
+    void applySettings();
+    void togglePanel();
+    void showFolders();
+    void insert(const juce::String& text);
 
     ConchaProcessor& proc_;
     juce::OpenGLContext gl_;
+    ui::LookAndFeel lookAndFeel_;
+    juce::TooltipWindow tooltips_{this};
 
+    juce::CodeDocument document_;
+    ui::JsTokeniser tokeniser_;
+    ui::CodeView code_{document_, tokeniser_};
+
+    juce::TextButton update_{"update"}, stop_{"stop"}, panelButton_{"panel"};
     juce::Label transport_, status_;
-    juce::Slider beatsPerCycle_;
-    juce::ToggleButton freeRun_{"Free run"}, probe_{"Sync probe"};
-    juce::TextButton evalButton_{"Evaluer (Ctrl+Entree)"}, hushButton_{"Couper (Ctrl+.)"}, samplesButton_{"Samples"};
-    std::unique_ptr<LibraryPanel> library_;
-    CodeBox code_;
-    juce::TextEditor console_;
-    int consoleLines_ = 0;
-    uint64_t seenEvaluations_ = 0;
+    ui::Meters meters_;
 
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SliderAttachment> beatsAttach_;
-    std::unique_ptr<ButtonAttachment> freeRunAttach_, probeAttach_;
+    juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
+    ui::ConsolePanel* console_ = nullptr;
+    ui::ReferencePanel* reference_ = nullptr;
+    ui::SoundsPanel* sounds_ = nullptr;
+    ui::SettingsPanel* settings_ = nullptr;
+    std::unique_ptr<LibraryPanel> library_;
+    bool panelOpen_ = true;
+
+    uint32_t shownGeneration_ = UINT32_MAX;
+    juce::String syncedCode_; // the processor's code as this editor last wrote or read it
+    int ticks_ = 0;
 };
 
 } // namespace concha
