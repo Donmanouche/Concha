@@ -1,5 +1,6 @@
 #include "sched/SoundConvert.h"
 #include "sc/ScDefs.h"
+#include "superdough/Analyser.h"
 #include "superdough/FxChain.h"
 #include "superdough/Kabel.h"
 
@@ -25,7 +26,7 @@ const NumberField kFields[] = {CONCHA_SD_NUMBER_PARAMS(CONCHA_SD_FIELD)};
 
 // Keys read elsewhere (strings, the resolution by sounds.mjs) or without effect on the sound.
 const char* const kHandled[] = {"s", "bank", "note", "freq", "duration", "channels", "ftype", "fmwave", "fmenv",
-                                "unit", "analyze", "fft", "color", "markcss", "id", "cps", "label", "activeLabel",
+                                "unit", "fft", "uniform", "color", "markcss", "id", "cps", "label", "activeLabel",
                                 "i", "value", "lock", "vowel", "distorttype", "tremoloshape", "lpshape", "hpshape",
                                 "bpshape", "duckorbit", "duckonset", "duckattack", "duckdepth", "partials", "phases",
                                 "warpmode", "wtshape", "warpshape", "lfo", "env", "bmod", "ir", "FX",
@@ -492,6 +493,19 @@ bool SoundConverter::convertControls(const PatternEvent& e, sd::SoundParams& out
             }
         } else if (key == "wtshape" || key == "warpshape") {
             (key == "wtshape" ? out.wtshape : out.warpshape) = modulationShape(v);
+        } else if (key == "analyze") { // any id: numbers and the widgets' strings share the slots
+            std::string id;
+            if (v.type == ParamValue::Type::Number) { // as JS's String(n): "1", "0.5"
+                if (v.number == std::floor(v.number)) id = std::to_string(int64_t(v.number));
+                else {
+                    char b[32];
+                    std::snprintf(b, sizeof b, "%.15g", v.number);
+                    id = b;
+                }
+                if (v.number == 0) id.clear(); // analyze(0): none, as superdough's falsy check
+            } else
+                id = v.string;
+            out.analyze = id.empty() ? 0 : int8_t(sd::analyserSlot(id));
         } else if (key == "distorttype") {
             out.distorttype = distortionIndex(v);
         } else if (key == "tremoloshape" || key == "lpshape" || key == "hpshape" || key == "bpshape") {

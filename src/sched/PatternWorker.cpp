@@ -55,6 +55,7 @@ void PatternWorker::start()
 {
     if (running_.exchange(true)) return;
     queryThread_ = std::thread([this] { queryLoop(); });
+    visualThread_ = std::thread([this] { visualLoop(); });
 }
 
 void PatternWorker::stop()
@@ -63,6 +64,7 @@ void PatternWorker::stop()
     evalCv_.notify_all();
     if (queryThread_.joinable()) queryThread_.join();
     if (evalThread_.joinable()) evalThread_.join();
+    if (visualThread_.joinable()) visualThread_.join();
 }
 
 void PatternWorker::requestEvaluate(std::string code)
@@ -137,6 +139,8 @@ void PatternWorker::queryLoop()
                 activeInfo_.generation = status_.activeGeneration;
                 activeInfo_.miniLocations = standbyMini_;
                 activeInfo_.sliders = standbySliders_;
+                activeInfo_.widgets = standbyWidgets_;
+                activeInfo_.shader = standbyShader_;
                 activeInfo_.soundNames = standbySounds_;
                 swapped = true;
             }
@@ -252,6 +256,8 @@ void PatternWorker::evalLoop()
             standbyCode_ = code;
             standbyMini_ = r.miniLocations;
             standbySliders_ = r.sliders;
+            standbyWidgets_ = r.widgets;
+            standbyShader_ = r.shader;
             standbySounds_ = sounds;
         } else if (log_.size() < 1000) {
             log_.push_back({"error", r.error});
@@ -322,6 +328,91 @@ void PatternWorker::runQueries(const TransportState& t)
 
 // MQTT and serial messages: handed to the sender with their time once their epoch plays (the
 // prepared start waits for the start); messages of an older epoch (stop, jump) are dropped.
+void PatternWorker::setVisuals(bool wanted, int width, int height, double pixelRatio)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    visuals_ = {wanted, std::max(1, width), std::max(1, height), pixelRatio > 0 ? pixelRatio : 1.0};
+}
+
+std::vector<PatternWorker::Frame> PatternWorker::takeFrames()
+{
+    std::lock_guard<std::mutex> lock(framesMutex_);
+    std::vector<Frame> out(std::make_move_iterator(frames_.begin()), std::make_move_iterator(frames_.end()));
+    frames_.clear();
+    return out;
+}
+
+// Visuals on their own thread and JS engine: the playing code is evaluated there too (patterns are
+// deterministic; this engine is never queried for sound), and its requestAnimationFrame callbacks
+// run at the transport's cycle (draw.mjs getTime()). A slow frame never delays the music.
+void PatternWorker::visualLoop()
+{
+    std::unique_ptr<PatternEngine> engine;
+    uint32_t evaluated = 0;
+    VisualsRequest sent;
+    size_t slidersSeen = 0;
+    auto lastFrame = Clock::now();
+    while (running_.load()) {
+        VisualsRequest v;
+        uint32_t generation;
+        std::string code;
+        std::vector<std::pair<std::string, double>> sliders;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            v = visuals_;
+            generation = status_.activeGeneration;
+            if (generation != evaluated) code = status_.activeCode;
+            if (visualSliders_.size() != slidersSeen) {
+                sliders.assign(visualSliders_.begin() + long(slidersSeen), visualSliders_.end());
+                slidersSeen = visualSliders_.size();
+            }
+        }
+        if (!v.wanted || generation == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
+        if (!engine) {
+            engine = std::make_unique<PatternEngine>(options_.engine);
+            if (!engine->ok()) return;
+            engine->takeLog();
+        }
+        if (sent.width != v.width || sent.height != v.height || sent.pixelRatio != v.pixelRatio) {
+            engine->setViewport(v.width, v.height, v.pixelRatio);
+            sent = v;
+        }
+        if (generation != evaluated) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                visualSliders_.clear();
+                slidersSeen = 0;
+            }
+            sliders.clear();
+            engine->evaluate(code);
+            engine->takeLog(); // the sound engines already reported this code's messages
+            evaluated = generation;
+        }
+        for (const auto& [id, value] : sliders) engine->setSlider(id, value);
+        const auto next = lastFrame + std::chrono::microseconds(16667);
+        const auto now = Clock::now();
+        if (now < next) std::this_thread::sleep_for(next - now);
+        lastFrame = Clock::now();
+        if (!engine->hasFrames()) continue;
+        const TransportState t = transport_.load();
+        const double N = std::max(1e-6, t.beatsPerCycle);
+        Frame f;
+        f.generation = evaluated;
+        const double ms = std::chrono::duration<double, std::milli>(lastFrame.time_since_epoch()).count();
+        if (!engine->frame(t.ppq / N, ms, f.canvases)) {
+            for (auto& m : engine->takeLog()) log(std::move(m.type), std::move(m.message));
+            continue;
+        }
+        for (auto& m : engine->takeLog()) log(std::move(m.type), std::move(m.message));
+        std::lock_guard<std::mutex> lock(framesMutex_);
+        frames_.push_back(std::move(f));
+        while (frames_.size() > 8) frames_.pop_front(); // the window is not reading: keep the latest
+    }
+}
+
 void PatternWorker::flushExternals(const TransportState& t)
 {
     for (auto& m : io::takeMessages()) log(m.find("connected") != std::string::npos || m.find("opened") != std::string::npos ? "info" : "warning", std::move(m));
@@ -395,6 +486,7 @@ PatternWorker::ActiveCodeInfo PatternWorker::activeCodeInfo() const
 void PatternWorker::setSlider(std::string id, double value)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (visualSliders_.size() < 4096) visualSliders_.emplace_back(id, value); // the visuals' engine too
     for (auto& m : sliderMoves_)
         if (m.first == id) {
             m.second = value;
@@ -425,13 +517,20 @@ void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const Tr
     {
         std::lock_guard<std::mutex> lock(visualMutex_);
         for (const PatternEvent& e : events) {
-            if (e.locations.empty() || e.kind == "midimsg" && e.locations.empty()) continue;
+            if (e.locations.empty() && !e.find("uniform")) continue; // highlighting, shader uniforms
             if (visual_.size() >= 8192) visual_.pop_front();
             VisualHap v;
             v.begin = e.begin;
             v.end = e.end;
             v.generation = codeGeneration_;
             if (const ParamValue* c = e.find("color"); c && c->type == ParamValue::Type::String) v.color = c->string;
+            if (const ParamValue* u = e.find("uniform"); u && u->type == ParamValue::Type::String) {
+                v.uniform = u->string;
+                const ParamValue* g = e.find("gain");
+                const ParamValue* vel = e.find("velocity");
+                v.uniformValue = (g && g->type == ParamValue::Type::Number ? g->number : 1.0) *
+                                 (vel && vel->type == ParamValue::Type::Number ? vel->number : 1.0);
+            }
             v.locations = e.locations;
             visual_.push_back(std::move(v));
         }

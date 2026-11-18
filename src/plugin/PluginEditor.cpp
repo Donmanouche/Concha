@@ -10,6 +10,7 @@ ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(
 {
     setLookAndFeel(&lookAndFeel_);
     gl_.setComponentPaintingEnabled(true);
+    gl_.setRenderer(this);
     gl_.attachTo(*this);
 
     // ---- code ----
@@ -72,6 +73,7 @@ ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(
 ConchaEditor::~ConchaEditor()
 {
     stopTimer();
+    proc_.setVisuals(false, 1, 1, 1.0); // no window: no frames
     document_.removeListener(this);
     auto& ui = proc_.state().state;
     ui.setProperty("panelTab", tabs_.getCurrentTabIndex(), nullptr);
@@ -134,6 +136,7 @@ void ConchaEditor::codeDocumentTextDeleted(int, int)
 
 void ConchaEditor::paint(juce::Graphics& g)
 {
+    if (shader_.active()) g.excludeClipRegion(code_.getBounds()); // the shader shows through there
     g.fillAll(theme::background);
     auto top = getLocalBounds().removeFromTop(44);
     g.setColour(theme::panel);
@@ -178,6 +181,49 @@ void ConchaEditor::resized()
     ui.setProperty("height", getHeight(), nullptr);
 }
 
+void ConchaEditor::updateShader(const std::vector<PatternWorker::VisualHap>& haps, double cycle, double cps)
+{
+    ui::ShaderLayer::Uniforms u;
+    u.cycle = cycle;
+    u.cps = cps;
+    u.time = cps > 0 ? cycle / cps : 0;
+    for (const auto& h : haps) // .uniform(name): the latest onset at or before now
+        if (!h.uniform.empty() && h.begin <= cycle) {
+            auto& o = uniformOnsets_[h.uniform];
+            if (h.begin >= o.first || o.first > cycle) o = {h.begin, h.uniformValue};
+        }
+    for (const auto& [name, o] : uniformOnsets_) u.haps[name] = {float(cps > 0 ? (cycle - o.first) / cps : 0), float(o.second)};
+    proc_.shaderAudio(u.spectrum, u.wave);
+    shader_.setUniforms(std::move(u));
+    gl_.triggerRepaint();
+}
+
+void ConchaEditor::renderOpenGL()
+{
+    juce::Rectangle<int> area;
+    {
+        std::lock_guard<std::mutex> lock(shaderAreaMutex_);
+        area = shaderArea_;
+    }
+    const double scale = gl_.getRenderingScale();
+    const auto target = getLocalBounds().toDouble() * scale; // getLocalBounds: set on the message thread, read only
+    const auto vp = (area.toDouble() * scale).toNearestInt();
+    const int targetHeight = int(std::lround(target.getHeight()));
+    shader_.render(gl_, vp, targetHeight);
+    if (onShaderFrame && shader_.active() && !vp.isEmpty()) {
+        using namespace juce::gl;
+        std::vector<uint8_t> px(size_t(vp.getWidth() * vp.getHeight() * 4));
+        glReadPixels(vp.getX(), targetHeight - vp.getBottom(), vp.getWidth(), vp.getHeight(), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+        juce::Image img(juce::Image::ARGB, vp.getWidth(), vp.getHeight(), false);
+        for (int y = 0; y < vp.getHeight(); ++y)
+            for (int x = 0; x < vp.getWidth(); ++x) {
+                const uint8_t* p = px.data() + ((vp.getHeight() - 1 - y) * vp.getWidth() + x) * 4;
+                img.setPixelAt(x, y, juce::Colour(p[0], p[1], p[2]));
+            }
+        onShaderFrame(img);
+    }
+}
+
 void ConchaEditor::timerCallback()
 {
     const auto& v = proc_.transportView();
@@ -192,6 +238,12 @@ void ConchaEditor::timerCallback()
         for (const auto& x : info.sliders)
             sliders.push_back({x.from, x.to, juce::String::fromUTF8(x.value.c_str()), x.min, x.max, x.step});
         code_.setSliders(sliders);
+        std::vector<CodeView::WidgetInfo> widgets;
+        for (const auto& w : info.widgets) widgets.push_back({w.canvas, w.to});
+        code_.setWidgets(widgets);
+        shader_.setSource(info.shader);
+        code_.setShaderActive(!info.shader.empty());
+        uniformOnsets_.clear();
         juce::StringArray names;
         for (const auto& n : info.soundNames) names.add(juce::String::fromUTF8(n.c_str()));
         sounds_->setSounds(names);
@@ -205,6 +257,20 @@ void ConchaEditor::timerCallback()
             for (const auto& [a, b] : h.locations) marks.push_back({a, b, c});
         }
     code_.setPlaying(marks);
+    // Strudel's visuals: the code view's size, the frames drawn since the last tick
+    proc_.setVisuals(true, code_.getWidth(), code_.getHeight(), 1.0); // the editor exists while its window is open
+    {
+        std::lock_guard<std::mutex> lock(shaderAreaMutex_);
+        shaderArea_ = code_.getBounds();
+    }
+    if (shader_.active()) {
+        const double N = std::max(1.0, double(proc_.beatsPerCycle()));
+        std::vector<PatternWorker::VisualHap> haps;
+        if (v.playing.load()) haps = proc_.activeHaps(v.cycle.load());
+        updateShader(haps, v.cycle.load(), v.bpm.load() / 60.0 / N);
+    }
+    for (const auto& e : shader_.takeErrors()) console_->add(juce::String::fromUTF8(e.c_str()), theme::error);
+    if (auto frames = proc_.takeFrames(); !frames.empty()) code_.addFrames(frames);
 
     std::array<float, 16> peaks{};
     const auto taken = proc_.takePeaks();

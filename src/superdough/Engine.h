@@ -19,6 +19,7 @@
 // oldest voices fade out in 0.25 s. Real-time safe: no allocation after prepare() (reverb impulse
 // responses are built on a helper thread).
 
+#include "superdough/Analyser.h"
 #include "superdough/AudioParam.h"
 #include "superdough/Convolver.h"
 #include "superdough/FxChain.h"
@@ -61,6 +62,8 @@ public:
     void setFxServer(FxServer* server) { fxServer_ = server; }
     // StrudelDirt's orbit effects (src/sc/ScOrbitFx): leslie, shimmer.
     void setOrbitFxServer(OrbitFxServer* server) { orbitFx_ = server; }
+    // `.analyze(id)`: the analysed voices' sound, for the visuals (any thread reads it)
+    const AnalyserTaps& analysers() const { return *analysers_; }
 
     // A StrudelDirt instrument's time span and envelope (DirtEvent.calcTimeSpan, strudel_envelope,
     // dirt_gate) for a hap of `duration` seconds: what the voice applies.
@@ -102,6 +105,7 @@ private:
     SynthServer* synthServer_ = nullptr;
     FxServer* fxServer_ = nullptr;
     OrbitFxServer* orbitFx_ = nullptr;
+    std::unique_ptr<AnalyserTaps> analysers_ = std::make_unique<AnalyserTaps>();
     // a StrudelDirt effects chain's way back to its orbit (index = the server's slot)
     struct FxDrain {
         bool active = false, voiceDone = false;

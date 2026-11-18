@@ -224,3 +224,38 @@ TEST("Tidal (tree-sitter in C++) and Mondo")
     CHECK(ev.size() == 3);
     if (ev.size() == 3) CHECK(ev[2].find("note") && ev[2].find("note")->string == "g3");
 }
+
+TEST("visuals: pianoroll and inline widgets record their canvas calls")
+{
+    auto& e = engine();
+    e.setViewport(400, 200, 1.0);
+    std::vector<PatternEvent> ev;
+    CHECK(e.evaluate("note(\"c3 e3 g3\").s(\"sine\").pianoroll()").ok);
+    CHECK(e.hasFrames());
+    std::vector<CanvasFrame> frames;
+    CHECK(e.frame(0.5, 16, frames));
+    CHECK(frames.size() == 1);
+    if (frames.size() == 1) {
+        CHECK(!frames[0].widget && frames[0].width == 400 && frames[0].height == 200);
+        int fills = 0;
+        for (size_t i = 0; i < frames[0].nums.size(); ++i) fills += frames[0].nums[i] == 11; // fillRect opcode (may count args too)
+        CHECK(fills >= 3);
+    }
+    CHECK(e.evaluate("note(\"c3 e3\").s(\"sine\")._pianoroll()").ok);
+    CHECK(e.frame(1.0, 32, frames));
+    CHECK(frames.size() == 1 && frames[0].widget && frames[0].width == 500 && frames[0].height == 60);
+    CHECK(frames.size() == 1 && frames[0].id.find("_widget__pianoroll_") != std::string::npos);
+    CHECK(e.evaluate("note(\"c3\").s(\"sine\")").ok);
+    CHECK(!e.hasFrames()); // the old animations stopped
+}
+
+TEST("shader`...`: the GLSL text arrives untouched, not as mini-notation")
+{
+    const std::string glsl = "void mainImage(out vec4 c, in vec2 p) { c = vec4(p.x * 0.5, 1.0, 0.0, 1.0); }";
+    const auto r = engine().evaluate("shader`" + glsl + "`\nnote(\"c3\").uniform(\"kick\")");
+    CHECK(r.ok && r.shader == glsl);
+    for (const auto& [a, b] : r.miniLocations) CHECK(a > int(glsl.size()) + 7); // none inside the shader
+    const auto r2 = engine().evaluate("shader(glsl`" + glsl + "`)\nnote(\"c3\")");
+    CHECK(r2.ok && r2.shader == glsl);
+    CHECK(engine().evaluate("note(\"c3\")").shader.empty()); // a new evaluation has none
+}

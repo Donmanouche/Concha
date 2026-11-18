@@ -27,7 +27,7 @@ namespace concha::sd {
     X(fmi) X(fmh) X(fmattack) X(fmdecay) X(fmsustain) X(fmrelease)                                                     \
     X(noise) X(density) X(FXrelease) X(octave)                                                                        \
     X(delay) X(delayfeedback) X(delaysync) X(delaytime) X(dry) X(room) X(roomsize) X(roomfade) X(roomlp) X(roomdim)  \
-    X(irspeed) X(irbegin) X(bus) X(busgain) X(leslie) X(lrate) X(lsize) X(shimmer)                                                                                             \
+    X(irspeed) X(irbegin) X(bus) X(busgain) X(leslie) X(lrate) X(lsize) X(shimmer) X(fft)                                                                                             \
     X(djf) X(coarse) X(crush) X(shape) X(shapevol) X(distort) X(distortvol)                                          \
     X(tremolo) X(tremolosync) X(tremolodepth) X(tremoloskew) X(tremolophase)                                         \
     X(phaserrate) X(phaserdepth) X(phasercenter) X(phasersweep)                                                      \
@@ -123,6 +123,7 @@ struct SoundParams {
     float transpose = 0.f;  // samples: semitones from getCommonSampleInfo
     uint32_t sampleId = 0;  // samples: SampleCache id (0 = none)
     float sfMidi = 48;      // Soundfont: the note's midi number (the zone is the sample)
+    int8_t analyze = 0;     // .analyze(id): its analyser slot (sd::analyserSlot), 0 = none
     uint32_t fxChainId = 0;  // FX: FxChainStore chain, 0 = none
     // StrudelDirt's effect modules at the end of the voice (sd::FxServer), in its order
     FxModule fxModules[8];

@@ -5,6 +5,7 @@
 #include "plugin/PluginProcessor.h"
 #include "plugin/ui/CodeView.h"
 
+#include <mutex>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -40,6 +41,21 @@ int main(int argc, char** argv)
     std::unique_ptr<juce::AudioProcessorEditor> editor(proc->createEditor());
     const int w = argc > 4 ? juce::String(argv[3]).getIntValue() : 1100, h = argc > 4 ? juce::String(argv[4]).getIntValue() : 680;
     editor->setSize(w, h);
+    // CONCHA_SHOT_SHADER=<out.png>: a real window (off screen) so OpenGL runs; the shader layer's
+    // last frame is written there (the snapshot below has no OpenGL)
+    std::mutex shaderMutex;
+    juce::Image shaderFrame;
+    const char* shaderOut = std::getenv("CONCHA_SHOT_SHADER");
+    if (shaderOut) {
+        if (auto* ed = dynamic_cast<concha::ConchaEditor*>(editor.get()))
+            ed->onShaderFrame = [&](const juce::Image& img) {
+                std::lock_guard<std::mutex> lock(shaderMutex);
+                shaderFrame = img.createCopy();
+            };
+        editor->setTopLeftPosition(-4000, -4000);
+        editor->addToDesktop(juce::ComponentPeer::windowIsTemporary);
+        editor->setVisible(true);
+    }
     // let the engine start, evaluate, play a while: the message loop runs the editor's timer
     const int playMs = argc > 5 ? juce::String(argv[5]).getIntValue() : 2500;
     const juce::String outPath(argv[2]);
@@ -71,6 +87,16 @@ int main(int argc, char** argv)
                 out.deleteFile();
                 juce::FileOutputStream os{out};
                 juce::PNGImageFormat().writeImageToStream(shot, os);
+                if (shaderOut) {
+                    std::lock_guard<std::mutex> lock(shaderMutex);
+                    juce::File sf{juce::String(shaderOut)};
+                    sf.deleteFile();
+                    if (shaderFrame.isValid()) {
+                        juce::FileOutputStream ss{sf};
+                        juce::PNGImageFormat().writeImageToStream(shaderFrame, ss);
+                    } else
+                        std::fprintf(stderr, "no shader frame\n");
+                }
                 juce::MessageManager::getInstance()->stopDispatchLoop();
             });
         });

@@ -27,6 +27,9 @@ struct LibraryHost final : PatternHost {
     // MIDI CCs and macros of the plug-in instance (set by the processor; none: 0)
     std::function<double(int, int, int)> controls;
     double control(int kind, int a, int b) override { return controls ? controls(kind, a, b) : 0.0; }
+    // .analyze(id)'s audio (set by the processor; none: no analysers)
+    std::function<int(const std::string&, int, std::vector<float>&)> analysers;
+    int analyser(const std::string& id, int kind, std::vector<float>& out) override { return analysers ? analysers(id, kind, out) : 0; }
 };
 
 } // namespace concha::lib

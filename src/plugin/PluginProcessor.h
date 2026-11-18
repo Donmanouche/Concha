@@ -81,6 +81,12 @@ public:
     void setSlider(const juce::String& id, double value) { worker_.setSlider(id.toStdString(), value); }
     // For the editor: haps playing at `cycle`, and the output peaks since the last call.
     std::vector<PatternWorker::VisualHap> activeHaps(double cycle) { return worker_.activeHaps(cycle); }
+    // Strudel's visuals (phase 8): the window asks for frames while it is open
+    void setVisuals(bool wanted, int width, int height, double pixelRatio) { worker_.setVisuals(wanted, width, height, pixelRatio); }
+    std::vector<PatternWorker::Frame> takeFrames() { return worker_.takeFrames(); }
+    // the main output for shaders: Shadertoy's audio texture rows (512 values, 0..1). Message thread.
+    void shaderAudio(std::vector<float>& spectrum, std::vector<float>& wave);
+    float beatsPerCycle() const { return beatsPerCycle_->load(); }
     std::array<float, kNumStereoBuses> takePeaks()
     {
         std::array<float, kNumStereoBuses> out{};
@@ -105,6 +111,8 @@ private:
     std::array<std::atomic<float>*, 16> macros_{};
     void readMidiInput(const juce::MidiBuffer& midi, int numSamples);
     juce::MidiBuffer midiInput_;
+    std::array<std::vector<float>, 16> analyserSmooth_;
+    std::vector<float> shaderSmooth_; // spectrum smoothing per analyser id (pattern thread)
     SeqLock<TransportState> transport_;
     SeqLock<SwapPoint> swap_;
     lib::LibraryHost host_{lib::SampleLibrary::instance()};

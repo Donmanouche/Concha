@@ -20,12 +20,14 @@ import * as mondo from '@strudel/mondo';
 import * as tidal from '@strudel/tidal';
 import * as gamepad from '@strudel/gamepad';
 import * as doughControls from '@strudel/dough/lib.mjs';
-import { transpiler } from '@strudel/transpiler';
+import { transpiler, getWidgetID } from '@strudel/transpiler';
 import '../../third_party/strudel/website/src/repl/piano.mjs';
 import { installStubs, outbox, setSlider, stubGlobals, toEvent } from './stubs.mjs';
 import * as midi from './midi.mjs';
 import * as midiin from './midiin.mjs';
 import * as io from './io.mjs';
+import * as canvas from './canvas.mjs';
+import * as visuals from './visuals.mjs';
 import * as sounds from './sounds.mjs';
 
 let state = { pattern: silence };
@@ -44,10 +46,30 @@ const instance = repl({
     lastError = e;
   },
 });
+// .onPaint() painters (punchcard, pitchwheel...) run by a Drawer, as strudel.cc's editor does
+// (codemirror.mjs, drawTime [-2, 2] in useReplContext.jsx), on the background canvas
+let drawer;
+function startPainters() {
+  drawer?.stop();
+  drawer = undefined;
+  const pattern = state.pattern ?? silence;
+  if (!pattern.getPainters().length) return;
+  const ctx = visuals.draw.getDrawContext();
+  drawer = new visuals.draw.Drawer((haps, time, _, painters) => {
+    painters?.forEach((painter) => painter(ctx, time, haps, [-2, 2]));
+  }, [-2, 2]);
+  drawer.start({ now: () => frameCycle, pattern });
+}
+
+// getTime() (draw.mjs's frames): the cycle of the frame being drawn
+let frameCycle = 0;
+instance.scheduler.now = () => frameCycle;
 
 const ready = (async () => {
   await evalScope(core, mini, tonal, xen, edo, mondo, tidal, gamepad, doughControls, { defaultmidimap: midi.defaultmidimap, midimaps: midi.midimaps },
     { midin: midiin.midin, midikeys: midiin.midikeys, macro: midiin.macro, move: io.move, motor: io.motor },
+    visuals.draw,
+    { shader: visuals.shader, uniform: visuals.uniform, glsl: visuals.glsl },
     { samples: sounds.samples, tables: sounds.tables, aliasBank: sounds.aliasBank, soundAlias: sounds.soundAlias,
       setSoundfontUrl: sounds.setSoundfontUrl },
     // StrudelDirt's controls that are not Strudel's: shimmer (its README's .shimmer(1)) and its
@@ -79,12 +101,16 @@ async function evaluate(code) {
   lastError = undefined;
   autoloadLibrary();
   midiin.resetKeyboards();
+  canvas.resetCanvases();
+  visuals.resetShader();
   await instance.evaluate(code, false);
   if (lastError) return { ok: false, error: String(lastError?.message ?? lastError) };
+  startPainters();
   return {
     ok: true,
     miniLocations: state.miniLocations ?? [],
-    widgets: (state.widgets ?? []).map((w) => ({ type: w.type, from: w.from, to: w.to, value: w.value })),
+    widgets: (state.widgets ?? []).map((w) => ({ type: w.type, from: w.from, to: w.to, value: w.value, canvas: getWidgetID(w) })),
+    shader: visuals.takeShader() ?? '',
     sliders: (state.sliders ?? []).map((s) => ({ from: s.from, to: s.to, value: String(s.value), min: s.min, max: s.max, step: s.step })),
   };
 }
@@ -176,5 +202,12 @@ globalThis.concha = {
   registerSuperDirtSynths: sounds.registerSuperDirtSynths,
   registerSynthControls,
   pushKey: midiin.pushKey,
+  // visuals: one frame at `cycle` (canvas.mjs runFrame), the window's size
+  frame(cycle, ms) {
+    frameCycle = cycle;
+    return canvas.runFrame(ms);
+  },
+  hasFrames: canvas.hasFrames,
+  setViewport: canvas.setViewport,
   version: '0.1.0',
 };

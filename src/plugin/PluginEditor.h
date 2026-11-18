@@ -9,22 +9,31 @@
 #include "plugin/ui/CodeView.h"
 #include "plugin/ui/JsTokeniser.h"
 #include "plugin/ui/Panels.h"
+#include "plugin/ui/ShaderLayer.h"
 #include "plugin/ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_opengl/juce_opengl.h>
 
+#include <map>
 #include <memory>
+#include <mutex>
 
 namespace concha {
 
-class ConchaEditor final : public juce::AudioProcessorEditor, private juce::Timer, private juce::CodeDocument::Listener {
+class ConchaEditor final : public juce::AudioProcessorEditor,
+                           private juce::Timer,
+                           private juce::CodeDocument::Listener,
+                           private juce::OpenGLRenderer {
 public:
     explicit ConchaEditor(ConchaProcessor&);
     ~ConchaEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
+
+    // For tools (concha_ui_shot): the shader layer's pixels after each OpenGL frame (GL thread).
+    std::function<void(const juce::Image&)> onShaderFrame;
 
 private:
     void timerCallback() override;
@@ -35,6 +44,15 @@ private:
     void togglePanel();
     void showFolders();
     void insert(const juce::String& text);
+    // shader(`...`) behind the code (ui::ShaderLayer), on the OpenGL thread
+    void newOpenGLContextCreated() override {}
+    void renderOpenGL() override;
+    void openGLContextClosing() override { shader_.release(); }
+    void updateShader(const std::vector<PatternWorker::VisualHap>& haps, double cycle, double cps);
+    ui::ShaderLayer shader_;
+    std::mutex shaderAreaMutex_;
+    juce::Rectangle<int> shaderArea_; // the code view in the editor (logical pixels)
+    std::map<std::string, std::pair<double, double>> uniformOnsets_; // .uniform(name): last onset (cycle), value
 
     ConchaProcessor& proc_;
     juce::OpenGLContext gl_;

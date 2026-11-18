@@ -103,6 +103,28 @@ struct PatternEngine::Impl {
         auto* impl = static_cast<Impl*>(JS_GetContextOpaque(ctx));
         PatternHost* host = impl ? impl->options.host : nullptr;
         if (!host) return JS_ThrowInternalError(ctx, "no host");
+        if (magic == 5) { // __concha_analyser(id, 'size' | 'time' | 'frequency')
+            std::string id;
+            if (argc > 0)
+                if (const char* s = JS_ToCString(ctx, argv[0])) {
+                    id = s;
+                    JS_FreeCString(ctx, s);
+                }
+            std::string kind;
+            if (argc > 1)
+                if (const char* k = JS_ToCString(ctx, argv[1])) {
+                    kind = k;
+                    JS_FreeCString(ctx, k);
+                }
+            std::vector<float> data;
+            const int size = host->analyser(id, kind == "time" ? 1 : kind == "frequency" ? 2 : 0, data);
+            if (!size) return JS_UNDEFINED;
+            if (kind != "time" && kind != "frequency") return JS_NewInt32(ctx, size);
+            JSValue ab = JS_NewArrayBufferCopy(ctx, reinterpret_cast<const uint8_t*>(data.data()), data.size() * sizeof(float));
+            JSValue arr = JS_NewTypedArray(ctx, 1, &ab, JS_TYPED_ARRAY_FLOAT32);
+            JS_FreeValue(ctx, ab);
+            return arr;
+        }
         if (magic == 4) { // __concha_control(kind, a, b): read at query time, fast
             int32_t v[3] = {0, 0, 0};
             for (int k = 0; k < 3 && k < argc; ++k) JS_ToInt32(ctx, &v[k], argv[k]);
@@ -288,8 +310,8 @@ struct PatternEngine::Impl {
         JS_SetPropertyStr(ctx, global.v, "__concha_gamepad", JS_NewCFunction(ctx, &Impl::gamepad, "__concha_gamepad", 1));
         if (options.host) {
             const char* natives[] = {"__concha_fetch", "__concha_library", "__concha_library_autoload", "__concha_buffer",
-                                     "__concha_control"};
-            for (int i = 0; i < 5; ++i)
+                                     "__concha_control", "__concha_analyser"};
+            for (int i = 0; i < 6; ++i)
                 JS_SetPropertyStr(ctx, global.v, natives[i], JS_NewCFunctionMagic(ctx, &Impl::native, natives[i], 1, JS_CFUNC_generic_magic, i));
         }
 
@@ -438,6 +460,18 @@ EvalResult PatternEngine::evaluate(std::string_view code)
                 x.step = std::isnan(st) ? 0.0 : st;
                 res.sliders.push_back(std::move(x));
             }
+            res.shader = r.get("shader").string();
+            if (res.shader == "undefined") res.shader.clear();
+            Value wl = r.get("widgets");
+            for (uint32_t i = 0, n = JS_IsArray(wl.v) ? wl.length() : 0; i < n; ++i) {
+                Value w = wl.at(i);
+                EvalResult::Widget x;
+                x.type = w.get("type").string();
+                x.canvas = w.get("canvas").string();
+                x.from = int(w.get("from").number());
+                x.to = int(w.get("to").number());
+                if (x.type.rfind("_", 0) == 0) res.widgets.push_back(std::move(x)); // drawing widgets, not sliders
+            }
         }
     }
     I.disarm();
@@ -506,6 +540,71 @@ std::vector<std::string> PatternEngine::showHaps(double begin, double end)
     }
     for (uint32_t i = 0, n = arr.length(); i < n; ++i) out.push_back(arr.at(i).string());
     return out;
+}
+
+bool PatternEngine::frame(double cycle, double ms, std::vector<CanvasFrame>& out, std::string* error)
+{
+    out.clear();
+    if (!ok()) return false;
+    auto& I = *impl_;
+    JSContext* ctx = I.ctx;
+    I.arm(I.options.queryTimeout);
+    Value fn(ctx, JS_GetPropertyStr(ctx, I.concha, "frame"));
+    JSValue args[2] = {JS_NewFloat64(ctx, cycle), JS_NewFloat64(ctx, ms)};
+    Value list(ctx, JS_Call(ctx, fn.v, I.concha, 2, args));
+    I.disarm();
+    if (list.isException()) {
+        const std::string msg = I.exceptionText();
+        if (error) *error = msg;
+        I.log.push_back({"error", "[draw] " + msg});
+        return false;
+    }
+    const uint32_t n = list.length();
+    out.resize(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        Value c = list.at(i);
+        CanvasFrame& f = out[i];
+        f.id = c.get("id").string();
+        f.widget = c.get("widget").number() != 0;
+        f.width = int(c.get("width").number());
+        f.height = int(c.get("height").number());
+        Value nums = c.get("nums");
+        size_t offset = 0, length = 0, bpe = 0;
+        JSValue ab = JS_GetTypedArrayBuffer(ctx, nums.v, &offset, &length, &bpe);
+        if (!JS_IsException(ab)) {
+            size_t size = 0;
+            if (uint8_t* bytes = JS_GetArrayBuffer(ctx, &size, ab); bytes && bpe == 8) {
+                f.nums.resize(length / 8);
+                std::memcpy(f.nums.data(), bytes + offset, length);
+            }
+            JS_FreeValue(ctx, ab);
+        } else
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        Value strs = c.get("strs");
+        const uint32_t ns = strs.length();
+        f.strs.reserve(ns);
+        for (uint32_t k = 0; k < ns; ++k) f.strs.push_back(strs.at(k).string());
+    }
+    return true;
+}
+
+bool PatternEngine::hasFrames()
+{
+    if (!ok()) return false;
+    auto& I = *impl_;
+    Value fn(I.ctx, JS_GetPropertyStr(I.ctx, I.concha, "hasFrames"));
+    Value r(I.ctx, JS_Call(I.ctx, fn.v, I.concha, 0, nullptr));
+    return JS_ToBool(I.ctx, r.v) == 1;
+}
+
+void PatternEngine::setViewport(int width, int height, double pixelRatio)
+{
+    if (!ok()) return;
+    auto& I = *impl_;
+    Value fn(I.ctx, JS_GetPropertyStr(I.ctx, I.concha, "setViewport"));
+    JSValue args[3] = {JS_NewInt32(I.ctx, width), JS_NewInt32(I.ctx, height), JS_NewFloat64(I.ctx, pixelRatio)};
+    Value r(I.ctx, JS_Call(I.ctx, fn.v, I.concha, 3, args));
+    if (r.isException()) JS_FreeValue(I.ctx, JS_GetException(I.ctx));
 }
 
 bool PatternEngine::evalJson(std::string_view expression, std::string& json, std::string* error)

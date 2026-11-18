@@ -38,7 +38,8 @@ add_library(concha_superdough STATIC src/superdough/Nodes.cpp src/superdough/Eng
     src/superdough/Compressor.cpp
     src/superdough/Kabel.cpp
     src/superdough/FxChain.cpp
-    src/superdough/PhaseVocoder.cpp)
+    src/superdough/PhaseVocoder.cpp
+    src/superdough/Analyser.cpp)
 target_link_libraries(concha_superdough PUBLIC Threads::Threads)
 target_include_directories(concha_superdough PUBLIC src)
 
@@ -104,6 +105,8 @@ target_sources(Concha PRIVATE
     src/plugin/ui/JsTokeniser.cpp
     src/plugin/ui/DocIndex.cpp
     src/plugin/ui/CodeView.cpp
+    src/plugin/ui/Canvas2D.cpp
+    src/plugin/ui/ShaderLayer.cpp
     src/plugin/ui/Panels.cpp
     ${PROJECT_BINARY_DIR}/js/EmbeddedDocs.cpp)
 

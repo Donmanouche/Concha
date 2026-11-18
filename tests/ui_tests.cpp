@@ -1,4 +1,5 @@
 // The editor's pieces (src/plugin/ui), without a window.
+#include "plugin/ui/Canvas2D.h"
 #include "check.h"
 #include "plugin/ui/CodeView.h"
 #include "plugin/ui/DocIndex.h"
@@ -147,4 +148,42 @@ int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
     return check::run();
+}
+
+TEST("Canvas2D: Strudel's canvas calls replayed on a persistent image")
+{
+    using C = concha::ui::Canvas2D;
+    concha::CanvasFrame f;
+    f.width = 40;
+    f.height = 20;
+    f.strs = {"#ff0000", "rgba(0, 0, 255, 0.5)", "transparent"};
+    // fillStyle red, fillRect 0 0 10 10; strokeStyle blue 50%, lineWidth 2, path, stroke
+    f.nums = {C::Resize, 40, 20, C::FillStyle, 0, C::FillRect, 0, 0, 10, 10, C::StrokeStyle, 1, C::LineWidth, 2,
+              C::BeginPath, C::MoveTo, 20, 15, C::LineTo, 39, 15, C::Stroke};
+    concha::ui::Canvas2D c;
+    c.run(f);
+    CHECK(c.width() == 40 && c.height() == 20 && c.drawn());
+    CHECK(c.image().getPixelAt(5, 5).getRed() == 255 && c.image().getPixelAt(5, 5).getAlpha() == 255);
+    const auto stroke = c.image().getPixelAt(30, 15);
+    CHECK(stroke.getBlue() > 100 && stroke.getAlpha() > 60 && stroke.getAlpha() < 200);
+    CHECK(c.image().getPixelAt(15, 5).getAlpha() == 0);
+    // the next frame keeps the pixels; clearRect and a snapshot put back 10 px to the left
+    concha::CanvasFrame g = f;
+    g.nums = {C::Snapshot, 1, 0, 0, 40, 20, C::ClearRect, 0, 0, 40, 20, C::PutImage, 1, -10, 0};
+    c.run(g);
+    CHECK(c.image().getPixelAt(20, 15).getBlue() > 100); // the stroke moved left by 10
+    CHECK(c.image().getPixelAt(5, 5).getAlpha() == 0);   // the red square went out on the left... mostly
+    // a translated arc filled: its centre is coloured
+    concha::CanvasFrame h = f;
+    h.nums = {C::ClearRect, 0, 0, 40, 20, C::FillStyle, 0, C::Translate, 20, 10, C::BeginPath, C::Arc, 0, 0, 5, 0, 6.283, 0, C::Fill};
+    c.run(h);
+    CHECK(c.image().getPixelAt(20, 10).getRed() == 255 && c.image().getPixelAt(2, 2).getAlpha() == 0);
+}
+
+TEST("cssColour: hsl and transparent")
+{
+    CHECK(concha::ui::cssColour("transparent", juce::Colours::red).getAlpha() == 0);
+    const auto c = concha::ui::cssColour("hsl(120, 100%, 50%)", juce::Colours::red);
+    CHECK(c.getGreen() == 255 && c.getRed() == 0 && c.getBlue() == 0);
+    CHECK(concha::ui::cssColour("hsla(0 100% 50% / 0.5)", juce::Colours::black).getAlpha() == 128);
 }

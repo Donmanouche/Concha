@@ -20,5 +20,20 @@
   "example duckdepth #1": "labelled / $: patterns: the test runtime keeps the last one, the repl stacks them all",
   "example duckonset #0": "labelled / $: patterns: the test runtime keeps the last one, the repl stacks them all",
   "example duckonset #1": "labelled / $: patterns: the test runtime keeps the last one, the repl stacks them all",
-  "example duckonset #2": "labelled / $: patterns: the test runtime keeps the last one, the repl stacks them all"
+  "example duckonset #2": "labelled / $: patterns: the test runtime keeps the last one, the repl stacks them all",
+  "example byteBeatStartTime #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example fm #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example fmattack #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example fmdecay #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example fmenv #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example fmh #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example fmsustain #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example loopBegin #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example loopEnd #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example scope #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example spectrum #0": "test runtime replaces ._spectrum() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example vib #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example vib #1": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example vibmod #0": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps",
+  "example vibmod #1": "test runtime replaces ._scope() by a no-op; on strudel.cc (and in Concha) the widget adds analyze: <widget id> to the haps"
 }

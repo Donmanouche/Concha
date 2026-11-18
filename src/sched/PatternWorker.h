@@ -66,14 +66,28 @@ public:
         std::vector<std::pair<int, int>> miniLocations;
         std::vector<EvalResult::Slider> sliders;
         std::vector<std::string> soundNames;
+        std::vector<EvalResult::Widget> widgets;
+        std::string shader;
     };
     ActiveCodeInfo activeCodeInfo() const;
+
+    // Visuals: while wanted (the window is open), the playing code's animation frames run on the
+    // query thread at about 60 per second, for a window of width x height. takeFrames() returns the
+    // frames since the last call (oldest first), with the code generation they belong to.
+    void setVisuals(bool wanted, int width, int height, double pixelRatio);
+    struct Frame {
+        uint32_t generation = 0;
+        std::vector<CanvasFrame> canvases;
+    };
+    std::vector<Frame> takeFrames();
 
     // A queried hap, for highlighting its code ranges while it plays (cycles, whole).
     struct VisualHap {
         double begin = 0, end = 0;
         uint32_t generation = 0;
         std::string color; // hap.value.color, if any
+        std::string uniform; // .uniform("name") (shaders), with its value (gain * velocity)
+        double uniformValue = 1;
         std::vector<std::pair<int, int>> locations;
     };
 
@@ -132,6 +146,17 @@ private:
     ActiveCodeInfo activeInfo_; // guarded by mutex_
     std::vector<std::pair<int, int>> standbyMini_;
     std::vector<EvalResult::Slider> standbySliders_;
+    std::vector<EvalResult::Widget> standbyWidgets_;
+    std::string standbyShader_;
+    void visualLoop();
+    std::vector<std::pair<std::string, double>> visualSliders_; // guarded by mutex_: slider moves for the visuals' engine
+    struct VisualsRequest {
+        bool wanted = false;
+        int width = 800, height = 600;
+        double pixelRatio = 1;
+    } visuals_; // guarded by mutex_
+    std::mutex framesMutex_;
+    std::deque<Frame> frames_;
     std::vector<std::pair<std::string, double>> sliderMoves_; // guarded by mutex_
     std::vector<std::string> standbySounds_;
     std::mutex visualMutex_;
@@ -140,7 +165,7 @@ private:
     std::vector<LogMessage> log_;
 
     std::atomic<bool> running_{false};
-    std::thread queryThread_, evalThread_;
+    std::thread queryThread_, evalThread_, visualThread_;
 
     // Query thread only.
     uint32_t epoch_ = UINT32_MAX;

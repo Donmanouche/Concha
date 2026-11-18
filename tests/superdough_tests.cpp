@@ -475,3 +475,32 @@ TEST("soundfont: a WebAudioFont preset's zones, base64 PCM, loop and base detune
     CHECK(e && std::fabs(e->loopStart - 2.0 / 44100) < 1e-12 && std::fabs(e->loopEnd - 4.0 / 44100) < 1e-12);
     CHECK(lib::parseSoundfont("var x = {}", error).empty() && !error.empty());
 }
+
+TEST("analysers: .analyze(id) captures the voice after postgain; ids share slots; spectrum peak")
+{
+    CHECK(sd::analyserSlot("1") == sd::analyserSlot("1") && sd::analyserSlot("1") != sd::analyserSlot("_widget__scope_0"));
+    CHECK(sd::analyserSlot("2") >= 1 && sd::analyserSlot("2") < sd::AnalyserTaps::kMaxIds);
+    sd::Engine e;
+    e.prepare(48000);
+    sd::SoundParams p;
+    p.type = sd::SoundType::Synth;
+    p.wave = sd::SynthWave::Sine;
+    p.frequency = 1500;
+    p.analyze = int8_t(sd::analyserSlot("1"));
+    p.fft = 5; // fftSize 1024
+    e.trigger(0, p, 1.0, 0.5, 0);
+    std::vector<float> l(512), r(512);
+    float* ch[2] = {l.data(), r.data()};
+    float* const* buses[1] = {ch};
+    for (int b = 0; b < 40; ++b) e.render(buses, 1, 512);
+    std::vector<float> t(1024);
+    CHECK(e.analysers().read(p.analyze, t.data(), 1024) == 1024);
+    float peak = 0;
+    for (float v : t) peak = std::max(peak, std::fabs(v));
+    CHECK(peak > 0.05f);
+    std::vector<float> smooth, db(512);
+    sd::analyserFrequencyData(t.data(), 1024, 0, smooth, db.data());
+    const int bin = int(std::max_element(db.begin(), db.end()) - db.begin());
+    CHECK(std::abs(bin - int(std::lround(1500.0 / (48000.0 / 1024)))) <= 1);
+    CHECK(e.analysers().read(0, t.data(), 1024) == 1024); // slot 0: the main output
+}

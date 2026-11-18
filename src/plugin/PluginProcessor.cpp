@@ -41,6 +41,18 @@ ConchaProcessor::ConchaProcessor() : AudioProcessor(makeBuses()), state_(*this, 
     freeRun_ = state_.getRawParameterValue("freeRun");
     probe_ = state_.getRawParameterValue("syncProbe");
     for (int i = 0; i < 16; ++i) macros_[size_t(i)] = state_.getRawParameterValue("macro" + juce::String(i + 1));
+    // scope / spectrum: the analysed voices (pattern thread)
+    host_.analysers = [this](const std::string& name, int kind, std::vector<float>& out) -> int {
+        const int id = sd::analyserSlot(name);
+        const int size = superdough_.analysers().read(id, nullptr, 0);
+        if (!size || kind == 0) return size;
+        std::vector<float> time(size_t(size), 0.f);
+        superdough_.analysers().read(id, time.data(), size);
+        out.resize(size_t(size / 2));
+        if (kind == 1) std::copy_n(time.begin(), size / 2, out.begin()); // the window's first half, as WebAudio
+        else sd::analyserFrequencyData(time.data(), size, 0.5, analyserSmooth_[size_t(id) % analyserSmooth_.size()], out.data());
+        return size;
+    };
     // midin() and macro() read these at query time (pattern thread)
     host_.controls = [this](int kind, int a, int b) -> double {
         if (kind == 0 && a >= 0 && a < 128 && b >= 0 && b <= 16) return midiCC_[size_t(b * 128 + a)].load(std::memory_order_relaxed);
@@ -232,6 +244,22 @@ void ConchaProcessor::readMidiInput(const juce::MidiBuffer& midi, int numSamples
             n.channel = uint8_t(chan);
             midiNotes_.push(n); // full (256 notes waiting): dropped
         }
+    }
+}
+
+// As Shadertoy's audio input (a WebAudio analyser, fftSize 1024, smoothing 0.8): row 0
+// getByteFrequencyData (-100..-30 dB), row 1 getByteTimeDomainData.
+void ConchaProcessor::shaderAudio(std::vector<float>& spectrum, std::vector<float>& wave)
+{
+    std::vector<float> time(1024, 0.f);
+    spectrum.assign(512, 0.f);
+    wave.assign(512, 0.5f);
+    if (!superdough_.analysers().read(0, time.data(), 1024)) return;
+    std::vector<float> db(512);
+    sd::analyserFrequencyData(time.data(), 1024, 0.8, shaderSmooth_, db.data());
+    for (int i = 0; i < 512; ++i) {
+        spectrum[size_t(i)] = juce::jlimit(0.0f, 1.0f, (db[size_t(i)] + 100.0f) / 70.0f);
+        wave[size_t(i)] = juce::jlimit(0.0f, 1.0f, time[size_t(512 + i)] * 0.5f + 0.5f);
     }
 }
 

@@ -29,6 +29,8 @@ inline const juce::Colour comment{0xff7d8799};
 inline const juce::Colour bracket{0xff525154};
 inline const juce::Colour punctuation{0xff82aaff};
 inline const juce::Colour className{0xffdecb6b};
+// strudel-theme.mjs lineBackground (#22222299): behind the code when visuals are drawn
+inline const juce::Colour lineBackground{0x99222222};
 // panels around the editor
 inline const juce::Colour panel{0xff1b1b1b};
 inline const juce::Colour panelLine{0xff333333};

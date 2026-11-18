@@ -676,6 +676,7 @@ struct Engine::Voice : Engine::FxStage {
     int scSlot = -1;           // ScSynth: the synth server's slot
     int64_t scReadFrom = 0;    // its output's first sample (absolute)
     double scTotal = 0;        // dirt_gate: totalDuration
+    int analyze = 0, fftSize = 8192; // .analyze(id): this voice feeds analyser id
     // strudel_envelope: Env.adsr(attack.max(0.001), decay, hold, release, 1, curve), gate held for
     // sustain, times amp
     double scAttack = 0.001, scDecay = 0, scLevel = 1, scRelease = 0.01, scCurve = -2, scHoldTime = 0, scAmp = 1;
@@ -1796,6 +1797,9 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
         v.fxReleaseGain.linearRampToValueAtTime(0.f, endWithRelease);
     }
     v.postgain = nanFallback(p.postgain, 1.0);
+    // getAnalyserById(analyze, 2 ** (fft + 5)) on `post`
+    v.analyze = p.analyze > 0 && p.analyze < AnalyserTaps::kMaxIds ? int(p.analyze) : 0;
+    v.fftSize = 1 << std::clamp(int(nanFallback(p.fft, 8.0)) + 5, 5, 15);
 
     // ---- orbit and its effects ----
     const int orbitNumber = int(std::lround(nanFallback(p.orbit, 1.0)));
@@ -2765,6 +2769,8 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
             if (v.fxRelease) g *= v.fxReleaseGain.valueAt(t);
             l *= float(g);
             r *= float(g);
+            if (v.analyze)
+                if (float* a = analysers_->block(v.analyze, numSamples, v.fftSize)) a[i] += 0.5f * (l + r);
             if (v.fxSlot >= 0) { // StrudelDirt's effects: to their World, back to the orbit kLatency later
                 fxServer_->write(v.fxSlot, absSample_ + i, l, r);
                 v.t += dt;
@@ -2879,6 +2885,14 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
             }
     }
     renderOrbits(buses, numBuses, numSamples);
+    // analyser slot 0: the main output (Concha's shaders read it as Shadertoy's audio texture)
+    if (numBuses > 0 && buses[0] && buses[0][0])
+        if (float* a = analysers_->block(0, numSamples, 1024)) {
+            const float* l = buses[0][0];
+            const float* r = buses[0][1] ? buses[0][1] : l;
+            for (int i = 0; i < numSamples; ++i) a[i] += 0.5f * (l[i] + r[i]);
+        }
+    analysers_->endBlock(numSamples);
     absSample_ += numSamples;
     active_.store(count, std::memory_order_relaxed);
 }

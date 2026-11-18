@@ -96,7 +96,8 @@ CodeView::CodeView(juce::CodeDocument& document, JsTokeniser& tokeniser)
     : juce::CodeEditorComponent(document, &tokeniser), doc_(document)
 {
     setColourScheme(tokeniser.getDefaultColourScheme());
-    setColour(juce::CodeEditorComponent::backgroundColourId, theme::background);
+    // the background is painted by paint(): the visuals go between it and the code
+    setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colours::transparentBlack);
     setColour(juce::CodeEditorComponent::defaultTextColourId, theme::foreground);
     setColour(juce::CodeEditorComponent::highlightColourId, theme::selection);
     setColour(juce::CodeEditorComponent::lineNumberBackgroundId, theme::background);
@@ -251,6 +252,111 @@ void CodeView::outline(juce::Graphics& g, int from, int to, juce::Colour colour)
         g.drawRect(r.expanded(1.5f), 2.0f);
         if (line == end.getLineNumber()) break;
         p = juce::CodeDocument::Position(doc_, line + 1, 0);
+    }
+}
+
+void CodeView::addFrames(const std::vector<PatternWorker::Frame>& frames)
+{
+    bool changed = false;
+    for (const auto& f : frames) {
+        if (f.generation != canvasGeneration_) { // new code: draw.mjs cleanupDraw clears the screen
+            canvases_.clear();
+            canvasGeneration_ = f.generation;
+            changed = true;
+        }
+        for (const auto& c : f.canvases) {
+            auto& canvas = canvases_[c.id];
+            if (!canvas) canvas = std::make_unique<Canvas2D>();
+            canvas->run(c);
+            changed = true;
+        }
+    }
+    if (changed) repaint();
+}
+
+void CodeView::setWidgets(const std::vector<WidgetInfo>& widgets)
+{
+    widgets_.clear();
+    const int size = doc_.getNumCharacters();
+    for (const auto& w : widgets) {
+        Widget x;
+        x.canvas = w.canvas;
+        x.to = std::make_unique<juce::CodeDocument::Position>(doc_, juce::jlimit(0, size, w.to));
+        x.to->setPositionMaintained(true);
+        widgets_.push_back(std::move(x));
+    }
+    repaint();
+}
+
+void CodeView::paint(juce::Graphics& g)
+{
+    if (!shaderActive_) g.fillAll(theme::background);
+    bool visuals = shaderActive_;
+    for (const auto& [id, c] : canvases_)
+        if (c && c->drawn() && !isWidgetCanvas(id)) {
+            g.drawImage(c->image(), getLocalBounds().toFloat(), juce::RectanglePlacement::stretchToFit);
+            visuals = true;
+        }
+    if (visuals) { // strudel.cc: the code's lines get a translucent background over the visuals
+        const int first = getFirstLineOnScreen(), lines = getNumLinesOnScreen() + 1;
+        const float cw = getCharWidth();
+        const int lh = getLineHeight();
+        g.setColour(theme::lineBackground);
+        for (int l = 0; l < lines && first + l < doc_.getNumLines(); ++l) {
+            const juce::String text = doc_.getLine(first + l).trimEnd();
+            if (text.isEmpty()) continue;
+            const int start = text.length() - text.trimStart().length();
+            const auto r0 = getCharacterBounds(juce::CodeDocument::Position(doc_, first + l, start));
+            g.fillRect(juce::Rectangle<float>(float(r0.getX()), float(r0.getY()), cw * float(text.length() - start), float(lh)));
+        }
+    }
+    juce::CodeEditorComponent::paint(g);
+    paintWidgets(g);
+}
+
+bool CodeView::isWidgetCanvas(const std::string& id) const
+{
+    for (const auto& w : widgets_)
+        if (w.canvas == id) return true;
+    return id.find("_widget_") != std::string::npos;
+}
+
+// strudel.cc shows a widget under its line; JUCE's editor cannot open space between lines, so the
+// widgets stand in a column at the right of the code, each at its line's height (pushed down so they
+// do not overlap), scaled to the room left. With no room, they overlap the code's right side.
+void CodeView::paintWidgets(juce::Graphics& g)
+{
+    if (widgets_.empty()) return;
+    const float cw = getCharWidth();
+    const float right = float(getWidth() - getScrollbarThickness() - 8);
+    const int first = getFirstLineOnScreen(), count = getNumLinesOnScreen() + 1;
+    float codeRight = 0;
+    for (int l = first; l < first + count && l < doc_.getNumLines(); ++l) {
+        const int len = doc_.getLine(l).trimEnd().length();
+        if (len > 0)
+            codeRight = std::max(codeRight, float(getCharacterBounds(juce::CodeDocument::Position(doc_, l, 0)).getX()) + cw * float(len));
+    }
+    codeRight += 24.0f;
+    const bool column = right - codeRight >= 160.0f;
+    float bottom = -1e9f;
+    for (const auto& w : widgets_) {
+        auto it = canvases_.find(w.canvas);
+        if (it == canvases_.end() || !it->second || !it->second->drawn()) continue;
+        const Canvas2D& c = *it->second;
+        const float maxW = column ? right - codeRight : float(getWidth()) * 0.45f;
+        const float scale = std::min(1.0f, maxW / float(c.width()));
+        const float wpx = float(c.width()) * scale, hpx = float(c.height()) * scale;
+        float y = float(getCharacterBounds(*w.to).getY());
+        y = std::max(y, bottom + 6.0f);
+        bottom = y + hpx;
+        const float x = column ? codeRight : right - wpx;
+        if (y + hpx < 0 || y > float(getHeight())) continue;
+        const juce::Rectangle<float> r(x, y, wpx, hpx);
+        g.setColour(theme::background.withAlpha(column ? 0.6f : 0.85f));
+        g.fillRect(r);
+        g.drawImage(c.image(), r, juce::RectanglePlacement::stretchToFit);
+        g.setColour(theme::panelLine);
+        g.drawRect(r, 1.0f);
     }
 }
 

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include "plugin/ui/Theme.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -93,6 +95,26 @@ juce::Colour cssColour(const juce::String& cssIn, juce::Colour fallback)
             return juce::Colour((juce::uint8)((v >> 24) & 0xff), (juce::uint8)((v >> 16) & 0xff), (juce::uint8)((v >> 8) & 0xff), (juce::uint8)(v & 0xff));
         }
         return fallback;
+    }
+    if (css == "transparent") return juce::Colours::transparentBlack;
+    if (css.startsWith("hsl")) { // hsl(h, s%, l%[, a]) / hsl(h s% l% / a)
+        const auto inner = css.fromFirstOccurrenceOf("(", false, false).upToLastOccurrenceOf(")", false, false);
+        juce::StringArray parts;
+        parts.addTokens(inner, ", /", "");
+        parts.removeEmptyStrings();
+        if (parts.size() < 3) return fallback;
+        const float h = std::fmod(std::fmod(parts[0].getFloatValue(), 360.0f) + 360.0f, 360.0f) / 360.0f;
+        const float sat = juce::jlimit(0.0f, 1.0f, parts[1].getFloatValue() / 100.0f);
+        const float l = juce::jlimit(0.0f, 1.0f, parts[2].getFloatValue() / 100.0f);
+        float a = 1.0f;
+        if (parts.size() > 3) a = parts[3].endsWithChar('%') ? parts[3].getFloatValue() / 100.0f : parts[3].getFloatValue();
+        // HSL -> RGB
+        auto f = [&](float n) {
+            const float k = std::fmod(n + h * 12.0f, 12.0f);
+            const float aa = sat * std::min(l, 1.0f - l);
+            return l - aa * std::max(-1.0f, std::min({k - 3.0f, 9.0f - k, 1.0f}));
+        };
+        return juce::Colour::fromFloatRGBA(f(0), f(8), f(4), juce::jlimit(0.0f, 1.0f, a));
     }
     if (css.startsWith("rgb")) {
         const auto inner = css.fromFirstOccurrenceOf("(", false, false).upToLastOccurrenceOf(")", false, false);

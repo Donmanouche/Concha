@@ -27,6 +27,8 @@ const strudelPackages = {
     build.onResolve({ filter: /^\.\/audioContext\.mjs$/ }, (args) =>
       args.importer.endsWith('zzfx_fork.mjs') ? { path: path.join(here, 'src/zzfx-context.mjs') } : undefined);
     // hs2js (Tidal) parses with web-tree-sitter (WebAssembly): Concha's C++ tree-sitter instead
+    // webaudio's scope.mjs / spectrum.mjs read superdough's analysers: Concha's (js/src/analysers.mjs)
+    build.onResolve({ filter: /^superdough$/ }, () => ({ path: path.join(here, 'src/analysers.mjs') }));
     build.onResolve({ filter: /^web-tree-sitter$/ }, () => ({ path: path.join(here, 'src/tree-sitter-native.mjs') }));
     build.onResolve({ filter: /\.wasm\?url$/ }, (args) => ({ path: args.path, namespace: 'wasm-url' }));
     build.onLoad({ filter: /.*/, namespace: 'wasm-url' }, () => ({ contents: 'export default "";', loader: 'js' }));

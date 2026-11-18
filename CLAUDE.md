@@ -9,7 +9,8 @@ parity with Strudel's snapshots, performance), `docs/PHASE2.md` (scheduler, sync
 fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.cc-like REPL, English UI), `docs/PHASE6.md` (StrudelDirt in scsynth, one synth
 with superdough: its instruments as voice sources, its effects at the end of the voice, leslie/shimmer on the orbits,
 the user's SynthDef folders, compared with the real StrudelDirt; phase 6 is complete), `docs/PHASE7.md` (MIDI in,
-macros, GM soundfonts, Mondo, Tidal via tree-sitter in C, gamepad, MQTT, serial; Csound postponed).
+macros, GM soundfonts, Mondo, Tidal via tree-sitter in C, gamepad, MQTT, serial; Csound postponed), `docs/PHASE8.md`
+(Strudel's visuals run unchanged on recording canvases replayed by the window; widgets; analysers; Concha's shaders).
 
 ## Rules from the user
 
@@ -57,6 +58,12 @@ macros, GM soundfonts, Mondo, Tidal via tree-sitter in C, gamepad, MQTT, serial;
   `src/io/ExternalOut`: curl CONNECT_ONLY + hand-written WebSocket/MQTT 3.1.1, termios serial),
   `js/src/tree-sitter-native.mjs` + `src/pattern/HaskellParser` (Tidal: web-tree-sitter replaced at bundle time;
   third_party/tree-sitter, tree-sitter-haskell), `src/input/Gamepad` (evdev, navigator.getGamepads shim).
+- Visuals: `js/src/canvas.mjs` (recording Canvas 2D, document/rAF shims, opcodes mirrored in
+  `src/plugin/ui/Canvas2D.h`), `js/src/visuals.mjs` (@strudel/draw, webaudio scope/spectrum, inline widgets,
+  shader`...`/glsl`...` language literals, .uniform()), `js/src/analysers.mjs` (bundled as 'superdough'),
+  `PatternWorker::visualLoop` (third JS engine on its own thread: frames never delay queries), `CodeView`
+  (background canvases, widget column), `src/plugin/ui/ShaderLayer` (GLSL in the editor's OpenGL renderer),
+  `src/superdough/Analyser` (taps per analyser slot, slot 0 = main output).
 - `src/library`: `SampleLibrary` (process-wide: named folders in ~/.config/Concha/library.txt, http cache in
   ~/.cache/Concha/http, loader threads), `Decoder` (dr_libs, stb_vorbis), `LibraryHost` (JS natives).
 - `src/sc`: `ScHost` (instruments' World, sd::SynthServer), `ScFx` (effects' World, sd::FxServer), `ScOrbitFx`
@@ -124,4 +131,6 @@ Bitwig: `~/.clap/Concha.clap`, `~/.vst3/Concha.vst3` (copy after a build when th
   packages/mondo, hs2js is packages/hs2js.
 - Soundfonts: sample URLs "sf:<preset url>#<midi>" are resolved by SampleLibrary's loaders (one decode per zone,
   SampleStore::alias for the other notes); SampleData carries loop and baseDetune.
+- Never run JS frames on the query thread (a frame can take 100s of ms): visuals have their own engine.
+- `concha_ui_shot` snapshots have no OpenGL; CONCHA_SHOT_SHADER=<png> opens an off-screen GL window for shaders.
 - Pattern threads rely on the 8 MB Linux default stack (QuickJS limit 6 MB): give them an explicit stack on Windows.

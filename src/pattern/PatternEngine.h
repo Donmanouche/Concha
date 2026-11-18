@@ -32,6 +32,16 @@ struct PatternEvent {
     const ParamValue* find(std::string_view key) const;
 };
 
+// What a canvas of Strudel's visuals drew in one frame (js/src/canvas.mjs): opcodes and arguments,
+// and the strings they refer to. Replayed by the window (plugin/ui/Canvas2D).
+struct CanvasFrame {
+    std::string id;
+    bool widget = false; // an inline widget (._pianoroll()...): see EvalResult::widgets
+    int width = 0, height = 0;
+    std::vector<double> nums;
+    std::vector<std::string> strs;
+};
+
 struct EvalResult {
     bool ok = false;
     std::string error;
@@ -42,6 +52,12 @@ struct EvalResult {
         double min = 0, max = 1, step = 0; // step 0: (max - min) / 1000
     };
     std::vector<Slider> sliders; // slider(value, min, max, step) calls, for the editor's widgets
+    struct Widget {              // ._pianoroll() ... calls: the canvas they draw on (CanvasFrame::id)
+        std::string type, canvas;
+        int from = 0, to = 0;
+    };
+    std::vector<Widget> widgets;
+    std::string shader; // shader(`...`): Concha's GLSL background, empty for none
     double milliseconds = 0.0;
 };
 
@@ -64,6 +80,10 @@ struct PatternHost {
     // Live values read at query time (js/src/midiin.mjs): kind 0 = MIDI CC `a` on channel `b`
     // (0 = any), 0..1; kind 1 = macro `a` (1..16), 0..1. Must be fast and never block.
     virtual double control(int kind, int a, int b) { return 0.0; }
+    // `.analyze(id)`'s audio (js/src/analysers.mjs): kind 1 = time domain (fftSize / 2 values, as
+    // getFloatTimeDomainData into frequencyBinCount), 2 = frequency (dB). Returns the fftSize, 0
+    // before any sound. Pattern thread.
+    virtual int analyser(const std::string& id, int kind, std::vector<float>& out) { return 0; }
 };
 
 class PatternEngine {
@@ -90,6 +110,10 @@ public:
 
     // Haps with an onset in [begin, end) (cycles), in order. cps: cycles per second (the DAW's).
     // Returns false on error (message in *error); `out` is cleared first.
+    // Visuals: runs the animation frames of the code at `cycle` (draw.mjs's getTime()); false on error.
+    bool frame(double cycle, double ms, std::vector<CanvasFrame>& out, std::string* error = nullptr);
+    bool hasFrames();
+    void setViewport(int width, int height, double pixelRatio);
     // keysOnly: only the notes just played on the MIDI input (pushed with evalJson("concha.pushKey(...)")).
     bool query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error = nullptr,
                bool keysOnly = false);
