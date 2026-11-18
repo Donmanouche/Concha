@@ -1,0 +1,22 @@
+{
+  "name": "concha-js",
+  "private": true,
+  "type": "module",
+  "description": "Builds the Strudel bundle that Concha runs inside QuickJS",
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "esbuild": "^0.25.11",
+    "nanostores": "^0.11.3",
+    "node-web-audio-api": "^2.2.0"
+  },
+  "dependencies": {
+    "@kabelsalat/lib": "0.4.1",
+    "@kabelsalat/web": "0.4.1",
+    "@tonaljs/tonal": "^4.10.0",
+    "acorn": "^8.14.0",
+    "chord-voicings": "^0.0.1",
+    "escodegen": "^2.1.0",
+    "estree-walker": "^3.0.3",
+    "fraction.js": "^5.2.1"
+  }
+}

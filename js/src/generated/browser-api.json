@@ -1,0 +1,1073 @@
+{
+ "draw": {
+  "exports": {
+   "Drawer": {
+    "kind": "class"
+   },
+   "Framer": {
+    "kind": "class"
+   },
+   "__pianoroll": {
+    "kind": "function"
+   },
+   "angle": {
+    "kind": "object"
+   },
+   "cleanupDraw": {
+    "kind": "function"
+   },
+   "colorMap": {
+    "kind": "object"
+   },
+   "convertColorToNumber": {
+    "kind": "function"
+   },
+   "convertHexToNumber": {
+    "kind": "function"
+   },
+   "drawPianoroll": {
+    "kind": "function"
+   },
+   "fill": {
+    "kind": "object"
+   },
+   "getComputedPropertyValue": {
+    "kind": "function"
+   },
+   "getDrawContext": {
+    "kind": "function"
+   },
+   "getDrawOptions": {
+    "kind": "function"
+   },
+   "getPunchcardPainter": {
+    "kind": "function"
+   },
+   "getTheme": {
+    "kind": "function"
+   },
+   "h": {
+    "kind": "object"
+   },
+   "moveXY": {
+    "kind": "object"
+   },
+   "pianoroll": {
+    "kind": "function"
+   },
+   "pitchwheel": {
+    "kind": "function"
+   },
+   "r": {
+    "kind": "object"
+   },
+   "rescale": {
+    "kind": "object"
+   },
+   "setTheme": {
+    "kind": "function"
+   },
+   "smear": {
+    "kind": "object"
+   },
+   "w": {
+    "kind": "object"
+   },
+   "x": {
+    "kind": "object"
+   },
+   "y": {
+    "kind": "object"
+   },
+   "zoomIn": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "animate",
+   "draw",
+   "getPainters",
+   "moveXY",
+   "onPaint",
+   "pianoroll",
+   "pitchwheel",
+   "punchcard",
+   "rescale",
+   "spiral",
+   "wordfall",
+   "zoomIn"
+  ],
+  "widgets": []
+ },
+ "webaudio": {
+  "exports": {
+   "ClockBridge": {
+    "kind": "class"
+   },
+   "DEFAULT_MAX_POLYPHONY": {
+    "kind": "value",
+    "value": 128
+   },
+   "Orbit": {
+    "kind": "class"
+   },
+   "SuperdoughAudioController": {
+    "kind": "class"
+   },
+   "SuperdoughOutput": {
+    "kind": "class"
+   },
+   "Warpmode": {
+    "kind": "object"
+   },
+   "_mod": {
+    "kind": "function"
+   },
+   "aliasBank": {
+    "kind": "function"
+   },
+   "analysers": {
+    "kind": "object"
+   },
+   "analysersData": {
+    "kind": "object"
+   },
+   "applyFM": {
+    "kind": "function"
+   },
+   "applyGainCurve": {
+    "kind": "function"
+   },
+   "applyParameterModulators": {
+    "kind": "function"
+   },
+   "buildSamples": {
+    "kind": "function"
+   },
+   "clamp": {
+    "kind": "function"
+   },
+   "cleanupOnEnd": {
+    "kind": "function"
+   },
+   "clearNodePool": {
+    "kind": "function"
+   },
+   "connectBusModulator": {
+    "kind": "function"
+   },
+   "connectEnvelope": {
+    "kind": "function"
+   },
+   "connectLFO": {
+    "kind": "function"
+   },
+   "connectToDestination": {
+    "kind": "function"
+   },
+   "createFilter": {
+    "kind": "function"
+   },
+   "cycleToSeconds": {
+    "kind": "function"
+   },
+   "distortionAlgorithms": {
+    "kind": "object"
+   },
+   "drawFrequencyScope": {
+    "kind": "function"
+   },
+   "drawTimeScope": {
+    "kind": "function"
+   },
+   "drywet": {
+    "kind": "function"
+   },
+   "dspWorklet": {
+    "kind": "function"
+   },
+   "effectSend": {
+    "kind": "function"
+   },
+   "ensureMinimalOutput": {
+    "kind": "function"
+   },
+   "errorLogger": {
+    "kind": "function"
+   },
+   "expDecay": {
+    "kind": "function"
+   },
+   "fetchSampleMap": {
+    "kind": "function"
+   },
+   "freqToMidi": {
+    "kind": "function"
+   },
+   "gainNode": {
+    "kind": "function"
+   },
+   "getADSRValues": {
+    "kind": "function"
+   },
+   "getAccidentalsOffset": {
+    "kind": "function"
+   },
+   "getAnalyserById": {
+    "kind": "function"
+   },
+   "getAnalyzerData": {
+    "kind": "function"
+   },
+   "getAudioContext": {
+    "kind": "function"
+   },
+   "getAudioContextCurrentTime": {
+    "kind": "function"
+   },
+   "getAudioDevices": {
+    "kind": "function"
+   },
+   "getBaseURL": {
+    "kind": "function"
+   },
+   "getCachedBuffer": {
+    "kind": "function"
+   },
+   "getClockBridge": {
+    "kind": "function"
+   },
+   "getCommonSampleInfo": {
+    "kind": "function"
+   },
+   "getCompressor": {
+    "kind": "function"
+   },
+   "getDefaultValue": {
+    "kind": "function"
+   },
+   "getDistortion": {
+    "kind": "function"
+   },
+   "getDistortionAlgorithm": {
+    "kind": "function"
+   },
+   "getDur": {
+    "kind": "object"
+   },
+   "getDuration": {
+    "kind": "function"
+   },
+   "getEnvelope": {
+    "kind": "function"
+   },
+   "getFrequencyFromValue": {
+    "kind": "function"
+   },
+   "getLfo": {
+    "kind": "function"
+   },
+   "getLoadedBuffer": {
+    "kind": "function"
+   },
+   "getNodeFromPool": {
+    "kind": "function"
+   },
+   "getNoiseBuffer": {
+    "kind": "function"
+   },
+   "getNoiseMix": {
+    "kind": "function"
+   },
+   "getNoiseOscillator": {
+    "kind": "function"
+   },
+   "getOscillator": {
+    "kind": "function"
+   },
+   "getParamADSR": {
+    "kind": "function"
+   },
+   "getParamLfo": {
+    "kind": "function"
+   },
+   "getPitchEnvelope": {
+    "kind": "function"
+   },
+   "getSampleBuffer": {
+    "kind": "function"
+   },
+   "getSampleBufferSource": {
+    "kind": "function"
+   },
+   "getSampleInfo": {
+    "kind": "function"
+   },
+   "getSound": {
+    "kind": "function"
+   },
+   "getSoundIndex": {
+    "kind": "function"
+   },
+   "getSuperdoughAudioController": {
+    "kind": "function"
+   },
+   "getSuperdoughControlTargets": {
+    "kind": "function"
+   },
+   "getVibratoOscillator": {
+    "kind": "function"
+   },
+   "getWorklet": {
+    "kind": "function"
+   },
+   "getZZFX": {
+    "kind": "function"
+   },
+   "initAudio": {
+    "kind": "function"
+   },
+   "initAudioOnFirstClick": {
+    "kind": "function"
+   },
+   "isPoolable": {
+    "kind": "function"
+   },
+   "loadBuffer": {
+    "kind": "function"
+   },
+   "loadWorklets": {
+    "kind": "function"
+   },
+   "logger": {
+    "kind": "function"
+   },
+   "maxPolyphony": {
+    "kind": "object"
+   },
+   "midiToFreq": {
+    "kind": "function"
+   },
+   "multiChannelOrbits": {
+    "kind": "value",
+    "value": false
+   },
+   "nanFallback": {
+    "kind": "function"
+   },
+   "noises": {
+    "kind": "object"
+   },
+   "noteToMidi": {
+    "kind": "function"
+   },
+   "onTriggerSample": {
+    "kind": "function"
+   },
+   "onTriggerSynth": {
+    "kind": "function"
+   },
+   "onceEnded": {
+    "kind": "function"
+   },
+   "pickAndRename": {
+    "kind": "function"
+   },
+   "processSampleMap": {
+    "kind": "function"
+   },
+   "rawdsp": {
+    "kind": "function"
+   },
+   "rawdspOutput": {
+    "kind": "function"
+   },
+   "registerSampleSource": {
+    "kind": "function"
+   },
+   "registerSamplesPrefix": {
+    "kind": "function"
+   },
+   "registerSound": {
+    "kind": "function"
+   },
+   "registerSynthSounds": {
+    "kind": "function"
+   },
+   "registerWaveTable": {
+    "kind": "function"
+   },
+   "registerWorklet": {
+    "kind": "function"
+   },
+   "registerZZFXSounds": {
+    "kind": "function"
+   },
+   "releaseAudioNode": {
+    "kind": "function"
+   },
+   "releaseNodeToPool": {
+    "kind": "function"
+   },
+   "renderPatternAudio": {
+    "kind": "function"
+   },
+   "resetDefaultValues": {
+    "kind": "function"
+   },
+   "resetDefaults": {
+    "kind": "function"
+   },
+   "resetGlobalEffects": {
+    "kind": "function"
+   },
+   "resetLoadedSounds": {
+    "kind": "function"
+   },
+   "resetSeenKeys": {
+    "kind": "function"
+   },
+   "reverseBuffer": {
+    "kind": "function"
+   },
+   "samples": {
+    "kind": "function"
+   },
+   "scheduleAtTime": {
+    "kind": "function"
+   },
+   "secondsToCycle": {
+    "kind": "function"
+   },
+   "setAudioContext": {
+    "kind": "function"
+   },
+   "setDefault": {
+    "kind": "function"
+   },
+   "setDefaultAudioContext": {
+    "kind": "function"
+   },
+   "setDefaultValue": {
+    "kind": "function"
+   },
+   "setDefaultValues": {
+    "kind": "function"
+   },
+   "setGainCurve": {
+    "kind": "function"
+   },
+   "setLogger": {
+    "kind": "function"
+   },
+   "setMaxPolyphony": {
+    "kind": "function"
+   },
+   "setMultiChannelOrbits": {
+    "kind": "function"
+   },
+   "setSuperdoughAudioController": {
+    "kind": "function"
+   },
+   "setVersionDefaults": {
+    "kind": "function"
+   },
+   "soundAlias": {
+    "kind": "function"
+   },
+   "soundMap": {
+    "kind": "object"
+   },
+   "superdough": {
+    "kind": "function"
+   },
+   "tables": {
+    "kind": "function"
+   },
+   "tokenizeNote": {
+    "kind": "function"
+   },
+   "valueToMidi": {
+    "kind": "function"
+   },
+   "vowelFormant": {
+    "kind": "object"
+   },
+   "waveformN": {
+    "kind": "function"
+   },
+   "webAudioTimeout": {
+    "kind": "function"
+   },
+   "webaudioOutput": {
+    "kind": "function"
+   },
+   "webaudioRepl": {
+    "kind": "function"
+   }
+  },
+  "methods": [
+   "fscope",
+   "rawdsp",
+   "scope",
+   "spectrum",
+   "tscope"
+  ],
+  "widgets": []
+ },
+ "codemirror": {
+  "exports": {
+   "Autocomplete": {
+    "kind": "function"
+   },
+   "BlockWidget": {
+    "kind": "class"
+   },
+   "SliderWidget": {
+    "kind": "class"
+   },
+   "StrudelMirror": {
+    "kind": "class"
+   },
+   "Vim": {
+    "kind": "object"
+   },
+   "activateTheme": {
+    "kind": "function"
+   },
+   "addWidget": {
+    "kind": "object"
+   },
+   "basicSetup": {
+    "kind": "object"
+   },
+   "codemirrorSettings": {
+    "kind": "object"
+   },
+   "compartments": {
+    "kind": "object"
+   },
+   "createTheme": {
+    "kind": "function"
+   },
+   "defaultSettings": {
+    "kind": "object"
+   },
+   "extensions": {
+    "kind": "object"
+   },
+   "flash": {
+    "kind": "function"
+   },
+   "flashField": {
+    "kind": "object"
+   },
+   "getSynonymDoc": {
+    "kind": "function"
+   },
+   "h": {
+    "kind": "function"
+   },
+   "highlightExtension": {
+    "kind": "object"
+   },
+   "highlightMiniLocations": {
+    "kind": "function"
+   },
+   "html": {
+    "kind": "function"
+   },
+   "initEditor": {
+    "kind": "function"
+   },
+   "initTheme": {
+    "kind": "function"
+   },
+   "injectStyle": {
+    "kind": "function"
+   },
+   "isAutoCompletionEnabled": {
+    "kind": "function"
+   },
+   "isFlashEnabled": {
+    "kind": "function"
+   },
+   "isPatternHighlightingEnabled": {
+    "kind": "function"
+   },
+   "isTooltipEnabled": {
+    "kind": "function"
+   },
+   "jumpToCharacter": {
+    "kind": "function"
+   },
+   "keybindings": {
+    "kind": "function"
+   },
+   "markcss": {
+    "kind": "object"
+   },
+   "minimalSetup": {
+    "kind": "object"
+   },
+   "parseBooleans": {
+    "kind": "function"
+   },
+   "registerWidget": {
+    "kind": "function"
+   },
+   "setFlash": {
+    "kind": "object"
+   },
+   "setMiniLocations": {
+    "kind": "object"
+   },
+   "setSliderWidgets": {
+    "kind": "object"
+   },
+   "setWidget": {
+    "kind": "function"
+   },
+   "settings": {
+    "kind": "object"
+   },
+   "showMiniLocations": {
+    "kind": "object"
+   },
+   "slider": {
+    "kind": "function"
+   },
+   "sliderPlugin": {
+    "kind": "object"
+   },
+   "sliderValues": {
+    "kind": "object"
+   },
+   "sliderWithID": {
+    "kind": "function"
+   },
+   "strudelAutocomplete": {
+    "kind": "function"
+   },
+   "strudelTooltip": {
+    "kind": "object"
+   },
+   "theme": {
+    "kind": "function"
+   },
+   "themeColors": {
+    "kind": "function"
+   },
+   "themes": {
+    "kind": "object"
+   },
+   "toggleBlockComment": {
+    "kind": "object"
+   },
+   "toggleBlockCommentByLine": {
+    "kind": "object"
+   },
+   "toggleComment": {
+    "kind": "object"
+   },
+   "toggleLineComment": {
+    "kind": "object"
+   },
+   "updateMiniLocations": {
+    "kind": "function"
+   },
+   "updateSliderWidgets": {
+    "kind": "function"
+   },
+   "updateWidgets": {
+    "kind": "function"
+   },
+   "widgetPlugin": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "type"
+  ],
+  "widgets": [
+   "_pianoroll",
+   "_pitchwheel",
+   "_punchcard",
+   "_scope",
+   "_spectrum",
+   "_spiral"
+  ]
+ },
+ "hydra": {
+  "exports": {
+   "H": {
+    "kind": "function"
+   },
+   "clearHydra": {
+    "kind": "function"
+   },
+   "initHydra": {
+    "kind": "function"
+   }
+  },
+  "methods": [],
+  "widgets": []
+ },
+ "serial": {
+  "exports": {
+   "getWriter": {
+    "kind": "function"
+   }
+  },
+  "methods": [
+   "serial"
+  ],
+  "widgets": []
+ },
+ "soundfonts": {
+  "exports": {
+   "drums": {
+    "kind": "object"
+   },
+   "getFontBufferSource": {
+    "kind": "function"
+   },
+   "getFontPitch": {
+    "kind": "function"
+   },
+   "instrumentNames": {
+    "kind": "object"
+   },
+   "instruments": {
+    "kind": "object"
+   },
+   "loadSoundfont": {
+    "kind": "function"
+   },
+   "registerSoundfonts": {
+    "kind": "function"
+   },
+   "setSoundfontUrl": {
+    "kind": "function"
+   },
+   "soundfontList": {
+    "kind": "object"
+   },
+   "startPresetNote": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "soundfont"
+  ],
+  "widgets": []
+ },
+ "csound": {
+  "exports": {
+   "csound": {
+    "kind": "object"
+   },
+   "csoundm": {
+    "kind": "object"
+   },
+   "loadCSound": {
+    "kind": "function"
+   },
+   "loadCsound": {
+    "kind": "object"
+   },
+   "loadOrc": {
+    "kind": "function"
+   },
+   "loadcsound": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "csound",
+   "csoundm"
+  ],
+  "widgets": []
+ },
+ "motion": {
+  "exports": {
+   "absOriA": {
+    "kind": "object"
+   },
+   "absOriB": {
+    "kind": "object"
+   },
+   "absOriG": {
+    "kind": "object"
+   },
+   "absOriX": {
+    "kind": "object"
+   },
+   "absOriY": {
+    "kind": "object"
+   },
+   "absOriZ": {
+    "kind": "object"
+   },
+   "absoluteOrientationAlpha": {
+    "kind": "object"
+   },
+   "absoluteOrientationBeta": {
+    "kind": "object"
+   },
+   "absoluteOrientationGamma": {
+    "kind": "object"
+   },
+   "absoluteOrientationX": {
+    "kind": "object"
+   },
+   "absoluteOrientationY": {
+    "kind": "object"
+   },
+   "absoluteOrientationZ": {
+    "kind": "object"
+   },
+   "accX": {
+    "kind": "object"
+   },
+   "accY": {
+    "kind": "object"
+   },
+   "accZ": {
+    "kind": "object"
+   },
+   "accelerationX": {
+    "kind": "object"
+   },
+   "accelerationY": {
+    "kind": "object"
+   },
+   "accelerationZ": {
+    "kind": "object"
+   },
+   "enableMotion": {
+    "kind": "function"
+   },
+   "gravX": {
+    "kind": "object"
+   },
+   "gravY": {
+    "kind": "object"
+   },
+   "gravZ": {
+    "kind": "object"
+   },
+   "gravityX": {
+    "kind": "object"
+   },
+   "gravityY": {
+    "kind": "object"
+   },
+   "gravityZ": {
+    "kind": "object"
+   },
+   "oriA": {
+    "kind": "object"
+   },
+   "oriB": {
+    "kind": "object"
+   },
+   "oriG": {
+    "kind": "object"
+   },
+   "oriX": {
+    "kind": "object"
+   },
+   "oriY": {
+    "kind": "object"
+   },
+   "oriZ": {
+    "kind": "object"
+   },
+   "orientationA": {
+    "kind": "object"
+   },
+   "orientationAlpha": {
+    "kind": "object"
+   },
+   "orientationB": {
+    "kind": "object"
+   },
+   "orientationBeta": {
+    "kind": "object"
+   },
+   "orientationG": {
+    "kind": "object"
+   },
+   "orientationGamma": {
+    "kind": "object"
+   },
+   "orientationX": {
+    "kind": "object"
+   },
+   "orientationY": {
+    "kind": "object"
+   },
+   "orientationZ": {
+    "kind": "object"
+   },
+   "rotA": {
+    "kind": "object"
+   },
+   "rotB": {
+    "kind": "object"
+   },
+   "rotG": {
+    "kind": "object"
+   },
+   "rotX": {
+    "kind": "object"
+   },
+   "rotY": {
+    "kind": "object"
+   },
+   "rotZ": {
+    "kind": "object"
+   },
+   "rotationAlpha": {
+    "kind": "object"
+   },
+   "rotationBeta": {
+    "kind": "object"
+   },
+   "rotationGamma": {
+    "kind": "object"
+   },
+   "rotationX": {
+    "kind": "object"
+   },
+   "rotationY": {
+    "kind": "object"
+   },
+   "rotationZ": {
+    "kind": "object"
+   }
+  },
+  "methods": [],
+  "widgets": []
+ },
+ "mqtt": {
+  "exports": {
+   "motor": {
+    "kind": "object"
+   },
+   "move": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "mqtt",
+   "robot"
+  ],
+  "widgets": []
+ },
+ "dough": {
+  "exports": {
+   "dough": {
+    "kind": "object"
+   },
+   "doughOutput": {
+    "kind": "function"
+   },
+   "glide": {
+    "kind": "object"
+   },
+   "group": {
+    "kind": "object"
+   },
+   "groupmod": {
+    "kind": "object"
+   },
+   "hap2dough": {
+    "kind": "function"
+   },
+   "initDough": {
+    "kind": "function"
+   },
+   "voices": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "dough",
+   "gmod",
+   "groupmod"
+  ],
+  "widgets": []
+ },
+ "midi": {
+  "exports": {
+   "MidiInput": {
+    "kind": "class"
+   },
+   "WebMidi": {
+    "kind": "object"
+   },
+   "defaultmidimap": {
+    "kind": "function"
+   },
+   "enableWebMidi": {
+    "kind": "function"
+   },
+   "getDevice": {
+    "kind": "function"
+   },
+   "getMidiDeviceNamesString": {
+    "kind": "function"
+   },
+   "midicontrolMap": {
+    "kind": "object"
+   },
+   "midikeys": {
+    "kind": "function"
+   },
+   "midimaps": {
+    "kind": "function"
+   },
+   "midin": {
+    "kind": "function"
+   },
+   "midisoundMap": {
+    "kind": "object"
+   }
+  },
+  "methods": [
+   "midi"
+  ],
+  "widgets": []
+ },
+ "osc": {
+  "exports": {
+   "osc": {
+    "kind": "object"
+   },
+   "oscOutput": {
+    "kind": "function"
+   },
+   "parseControlsFromHap": {
+    "kind": "function"
+   }
+  },
+  "methods": [
+   "osc"
+  ],
+  "widgets": []
+ },
+ "tidal": {
+  "exports": {
+   "initTidal": {
+    "kind": "function"
+   },
+   "tidal": {
+    "kind": "function"
+   }
+  },
+  "methods": [],
+  "widgets": []
+ }
+}
