@@ -8,7 +8,8 @@ parity with Strudel's snapshots, performance), `docs/PHASE2.md` (scheduler, sync
 4b: compressor, zzfx, bytebeat, wavetables, transient, lfo/env/bmod on every target, buses, ir, FM matrix, FX chains with
 fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.cc-like REPL, English UI), `docs/PHASE6.md` (StrudelDirt in scsynth, one synth
 with superdough: its instruments as voice sources, its effects at the end of the voice, leslie/shimmer on the orbits,
-the user's SynthDef folders, compared with the real StrudelDirt; phase 6 is complete).
+the user's SynthDef folders, compared with the real StrudelDirt; phase 6 is complete), `docs/PHASE7.md` (MIDI in,
+macros, GM soundfonts, Mondo, Tidal via tree-sitter in C, gamepad, MQTT, serial; Csound postponed).
 
 ## Rules from the user
 
@@ -51,6 +52,11 @@ the user's SynthDef folders, compared with the real StrudelDirt; phase 6 is comp
   Chromium normalisation, reverbGen IRs), `Engine` (voices built like superdough(), orbits with delay / reverb /
   djf / duck; worklet-like stages in 128-sample quanta on an absolute clock), `SoundParams` (NaN = undefined),
   `SampleStore`. `src/sched/SoundConvert` maps hap values to SoundParams and logs unsupported controls.
+- `js/src/midiin.mjs` (midin, midikeys, macro: __concha_control, concha.pushKey + keysOnly queries),
+  `js/src/io.mjs` (.mqtt/.robot/.serial -> outbox kinds "mqtt"/"serial" -> PatternWorker::flushExternals ->
+  `src/io/ExternalOut`: curl CONNECT_ONLY + hand-written WebSocket/MQTT 3.1.1, termios serial),
+  `js/src/tree-sitter-native.mjs` + `src/pattern/HaskellParser` (Tidal: web-tree-sitter replaced at bundle time;
+  third_party/tree-sitter, tree-sitter-haskell), `src/input/Gamepad` (evdev, navigator.getGamepads shim).
 - `src/library`: `SampleLibrary` (process-wide: named folders in ~/.config/Concha/library.txt, http cache in
   ~/.cache/Concha/http, loader threads), `Decoder` (dr_libs, stb_vorbis), `LibraryHost` (JS natives).
 - `src/sc`: `ScHost` (instruments' World, sd::SynthServer), `ScFx` (effects' World, sd::FxServer), `ScOrbitFx`
@@ -114,4 +120,8 @@ Bitwig: `~/.clap/Concha.clap`, `~/.vst3/Concha.vst3` (copy after a build when th
   build (mainFields).
 - UI tests and concha_ui_shot link the plug-in's shared-code target (Concha) and need an X display.
 - PatternWorker::activeCodeInfo() (mini locations, sliders, sound names) is read only when the generation changes.
+- js/build.mjs resolves packages by their package.json name: @strudel/mondo is packages/mondough, mondolang is
+  packages/mondo, hs2js is packages/hs2js.
+- Soundfonts: sample URLs "sf:<preset url>#<midi>" are resolved by SampleLibrary's loaders (one decode per zone,
+  SampleStore::alias for the other notes); SampleData carries loop and baseDetune.
 - Pattern threads rely on the 8 MB Linux default stack (QuickJS limit 6 MB): give them an explicit stack on Windows.

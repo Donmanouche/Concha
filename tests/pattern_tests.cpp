@@ -208,3 +208,19 @@ TEST("sounds: unknown names are skipped, samples resolve to files, synths get a 
 }
 
 int main() { return RUN_TESTS(); }
+
+TEST("Tidal (tree-sitter in C++) and Mondo")
+{
+    auto ev = run("await initTidal()\ntidal`d1 $ note \"c3 e3\" # s \"sawtooth\" # lpf 1000`");
+    CHECK(ev.size() == 2);
+    if (ev.size() == 2) {
+        CHECK_NEAR(ev[1].begin, 0.5, 1e-12);
+        const ParamValue* note = ev[1].find("note");
+        CHECK(note && note->string == "e3");
+        CHECK(ev[1].find("cutoff") && ev[1].find("cutoff")->number == 1000);
+        CHECK(!ev[1].locations.empty()); // mini-notation ranges inside the Haskell code
+    }
+    ev = run("mondo`note [c3 e3 g3] # s sawtooth`");
+    CHECK(ev.size() == 3);
+    if (ev.size() == 3) CHECK(ev[2].find("note") && ev[2].find("note")->string == "g3");
+}

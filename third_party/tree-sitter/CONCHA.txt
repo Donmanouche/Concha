@@ -1,0 +1,1 @@
+tree-sitter 0.24.7 (github.com/tree-sitter/tree-sitter, lib/ only): the C runtime of Tidal's parser (hs2js).

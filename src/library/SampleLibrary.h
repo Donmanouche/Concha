@@ -17,6 +17,7 @@
 //  - audio files at the root are one sound named after the folder's library name;
 //  - every sound is also registered as <name>_<sound>, so .bank("<name>") works.
 
+#include "library/Soundfont.h"
 #include "superdough/SampleStore.h"
 
 #include <atomic>
@@ -64,6 +65,8 @@ public:
     // Text of a URL or a path (blocking; http(s) cached on disk).
     bool fetchText(const std::string& url, std::string& text, std::string& error);
     // Id of a sample (loaded in the background when new). 0 for an empty URL.
+    // "sf:<preset url>#<midi note>": the soundfont zone of that note (Soundfont.h), whose preset
+    // file is fetched once (disk cache); notes of the same zone share its data.
     uint32_t requestSample(const std::string& url);
     bool isLoaded(uint32_t id) const { return store_.get(id) != nullptr; }
     // A buffer made at run time (zzfx, bytebeat notes): kept in a ring of transient slots, each
@@ -101,6 +104,9 @@ private:
     bool stop_ = false;
     std::vector<std::thread> loaders_;
     std::vector<std::string> errors_;
+    void loadSoundfontNote(uint32_t id, const std::string& url);
+    std::map<std::string, std::shared_ptr<const std::vector<SoundfontZone>>> soundfonts_; // preset url -> zones
+    std::map<std::string, uint32_t> soundfontZones_; // "<preset url>#<zone>" -> id of the note that decodes it
     struct Transient {
         std::unique_ptr<sd::SampleData> data;
         std::chrono::steady_clock::time_point published{};

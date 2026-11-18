@@ -7,7 +7,8 @@
 //   __concha_fetch(url) -> text      (http(s) with a disk cache, file:// and absolute paths)
 //   __concha_library(name) -> JSON   (a named sample folder of the library, as a sample map)
 // They are synchronous: they run on the evaluation thread, where waiting is fine.
-import { logger, isNote } from '@strudel/core';
+import { logger, isNote, freqToMidi, getSoundIndex } from '@strudel/core';
+import gm from '@strudel/soundfonts/gm.mjs';
 import { compileKabel } from './kabel.mjs';
 import { getCommonSampleInfo, noteToMidi, midiToFreq } from '@strudel/superdough/util.mjs';
 import { buildSamples } from '@strudel/superdough/zzfx_fork.mjs';
@@ -44,6 +45,13 @@ for (const s of noises) registerSound(s, 'noise');
 for (const s of ['zzfx', 'z_sine', 'z_sawtooth', 'z_triangle', 'z_square', 'z_tan', 'z_noise']) registerSound(s, 'zzfx');
 for (const [alias, actual] of [['tri', 'triangle'], ['sqr', 'square'], ['saw', 'sawtooth'], ['sin', 'sine']])
   soundMap.set(alias, soundMap.get(actual));
+// soundfonts/fontloader.mjs registerSoundfonts() (strudel.cc's prebake): the General MIDI presets,
+// fetched from soundfontUrl when first played (disk cache), played by Concha's library and engine
+let soundfontUrl = 'https://felixroos.github.io/webaudiofontdata/sound';
+export function setSoundfontUrl(url) {
+  soundfontUrl = String(url);
+}
+for (const [name, fonts] of Object.entries(gm)) registerSound(name, 'soundfont', { fonts });
 
 // ---- sample maps (sampler.mjs) ----
 
@@ -299,6 +307,23 @@ export function resolveSound(value, timing = {}) {
     }
     out.__type = 'bytebeat';
     if (!out.__buffer) out.__type = 'skip';
+    return out;
+  }
+  if (sound.type === 'soundfont') {
+    // getFontBufferSource: the note's midi number (freq, note name or number; default c3) picks the
+    // preset's zone; n picks the preset
+    let midi;
+    const { note = 'c3', freq } = value;
+    if (freq) midi = freqToMidi(freq);
+    else if (typeof note === 'string') midi = noteToMidi(note);
+    else if (typeof note === 'number') midi = note;
+    else {
+      warnOnce(`note:${note}`, `[soundfont] unexpected "note" type "${typeof note}"`);
+      return { ...value, __type: 'skip' };
+    }
+    const font = sound.fonts[getSoundIndex(value.n, sound.fonts.length)];
+    out.__url = `sf:${soundfontUrl}/${font}.js#${midi}`;
+    out.__midi = midi;
     return out;
   }
   if (sound.type === 'superdirt') {

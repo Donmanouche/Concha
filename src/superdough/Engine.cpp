@@ -1706,6 +1706,28 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
         v.sourceGain = 1.0;
         vibrato();
         pitchEnvelope(v.detune, holdDuration);
+    } else if (p.type == SoundType::Soundfont) { // fontloader.mjs registerSoundfonts / getFontBufferSource
+        const SampleData* s = store_ ? store_->get(p.sampleId) : nullptr;
+        if (!s || s->frames <= 0) {
+            missingSamples_.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        v.sample = s;
+        v.sourceChannels = std::min(2, s->channels);
+        const ADSR env = getADSRValues(p.attack, p.decay, p.sustain, p.release, nullptr);
+        v.playbackRate = std::pow(2.0, (100.0 * p.sfMidi - s->baseDetune) / 1200.0);
+        v.reverse = false;
+        v.position = 0;
+        v.loop = s->loopEnd > s->loopStart;
+        v.loopStart = s->loopStart;
+        v.loopEnd = s->loopEnd;
+        v.sampleStart = 0;
+        // getParamADSR(node.gain, attack, decay, sustain, release, 0, 0.3, time, holdEnd, 'linear')
+        getParamADSR(v.envGain, env.attack, env.decay, env.sustain, env.release, 0, 0.3, 0, duration, false);
+        sourceStop = duration + env.release + 0.01;
+        v.sourceGain = 1.0;
+        vibrato();
+        pitchEnvelope(v.detune, duration);
     } else if (p.type == SoundType::ScSynth) { // a StrudelDirt instrument (DirtEvent.calcTimeSpan, sendSynth)
         if (!synthServer_) return false;
         SynthArg args[64];
@@ -1946,7 +1968,7 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
                 case ModTarget::SourceFrequency:
                     isFrequency = true;
                     exists = isMain && v.type != SoundType::Noise && v.type != SoundType::Buffer && !(synth && v.wave == SynthWave::Bus);
-                    cur = v.type == SoundType::Sample ? 0.0 : double(p.frequency); // samples: detune
+                    cur = v.type == SoundType::Sample || v.type == SoundType::Soundfont ? 0.0 : double(p.frequency); // samples: detune
                     break;
                 case ModTarget::Post: exists = isMain; cur = v.postgain; break;
                 case ModTarget::VibRate: exists = isMain && v.vib; isFrequency = true; cur = v.vibFreq; break;

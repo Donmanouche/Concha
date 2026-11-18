@@ -28,8 +28,9 @@ export function toEvent(kind, hap, extra) {
   return { kind, begin: num(hap.whole.begin), end: num(hap.whole.end), dur: num(hap.duration), value, locs, ...extra };
 }
 
-// midi is real (src/midi.mjs); the others go out with their name as kind until they are implemented.
-export const outputMethods = ['osc', 'dough', 'csound', 'csoundm', 'mqtt', 'serial', 'robot'];
+// midi, mqtt, robot and serial are real (src/midi.mjs, src/io.mjs); the others go out with their
+// name as kind until they are implemented.
+export const outputMethods = ['osc', 'dough', 'csound', 'csoundm'];
 
 class Inert {
   constructor() {
@@ -50,9 +51,6 @@ const special = {
     return ref(() => special.sliderValues[id]);
   },
   slider: (value) => value,
-  // midi input: like Strudel's test runtime until phase 7 wires the DAW's MIDI in.
-  midin: () => (ccNum) => ref(() => 0),
-  midikeys: async () => () => silence,
   getAudioContext: () => ({ currentTime: 0, sampleRate: 48000 }),
   getDrawContext: () => ({ clearRect() {}, fillText() {}, fillRect() {}, canvas: { width: 100, height: 100 } }),
   initAudio: async () => {},

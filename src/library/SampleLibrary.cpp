@@ -1,6 +1,7 @@
 #include "library/SampleLibrary.h"
 
 #include "library/Decoder.h"
+#include "library/Soundfont.h"
 
 #include <curl/curl.h>
 
@@ -443,6 +444,48 @@ std::vector<std::string> SampleLibrary::takeErrors()
     return out;
 }
 
+void SampleLibrary::loadSoundfontNote(uint32_t id, const std::string& url)
+{
+    auto fail = [&](const std::string& error) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (errors_.size() < 100) errors_.push_back("[soundfont] " + url.substr(3) + ": " + error);
+    };
+    const size_t hash = url.rfind('#');
+    if (hash == std::string::npos) return fail("no note");
+    const std::string preset = url.substr(3, hash - 3);
+    const double midi = std::atof(url.c_str() + hash + 1);
+    std::shared_ptr<const std::vector<SoundfontZone>> zones;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (auto it = soundfonts_.find(preset); it != soundfonts_.end()) zones = it->second;
+    }
+    if (!zones) { // fetched once (http: through the disk cache), parsed once
+        std::string text, error;
+        if (!fetchText(preset, text, error)) return fail(error);
+        auto parsed = std::make_shared<std::vector<SoundfontZone>>(parseSoundfont(text, error));
+        if (parsed->empty()) return fail(error);
+        std::lock_guard<std::mutex> lock(mutex_);
+        zones = soundfonts_.emplace(preset, std::move(parsed)).first->second;
+    }
+    const int z = findSoundfontZone(*zones, midi);
+    if (z < 0) return fail("no zone for note " + url.substr(hash + 1));
+    const std::string zoneKey = preset + "#" + std::to_string(z);
+    uint32_t owner = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto [it, fresh] = soundfontZones_.emplace(zoneKey, id);
+        if (!fresh) owner = it->second;
+    }
+    if (owner) { // another note decodes this zone: share it once it is there
+        for (int k = 0; k < 30000 && !store_.alias(id, owner); ++k) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return;
+    }
+    std::string error;
+    auto data = decodeSoundfontZone((*zones)[size_t(z)], error);
+    if (!data) return fail(error);
+    store_.publish(id, std::move(data));
+}
+
 void SampleLibrary::loaderLoop()
 {
     for (;;) {
@@ -453,6 +496,10 @@ void SampleLibrary::loaderLoop()
             if (stop_) return;
             job = std::move(queue_.front());
             queue_.pop_front();
+        }
+        if (job.second.rfind("sf:", 0) == 0) {
+            loadSoundfontNote(job.first, job.second);
+            continue;
         }
         std::vector<unsigned char> bytes;
         std::string error;

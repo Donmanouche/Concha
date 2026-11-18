@@ -41,6 +41,15 @@ struct TransportState {
     bool looping = false;
 };
 
+// Audio thread -> pattern thread: a note-on from the DAW's MIDI input (midikeys), at its position
+// plus a little latency (it is played by a query of the pattern at that time).
+struct MidiInNote {
+    uint32_t epoch = 0;
+    int32_t lap = 0;
+    double ppq = 0.0;
+    uint8_t note = 0, velocity = 0, channel = 1; // channel 1..16
+};
+
 // Pattern thread -> audio thread when new code takes over: events of older code generations at or
 // after this point are dropped (note-offs excepted, so no note hangs).
 struct SwapPoint {

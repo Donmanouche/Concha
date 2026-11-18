@@ -17,12 +17,15 @@ import * as tonal from '@strudel/tonal';
 import * as xen from '@strudel/xen';
 import * as edo from '@strudel/edo';
 import * as mondo from '@strudel/mondo';
+import * as tidal from '@strudel/tidal';
 import * as gamepad from '@strudel/gamepad';
 import * as doughControls from '@strudel/dough/lib.mjs';
 import { transpiler } from '@strudel/transpiler';
 import '../../third_party/strudel/website/src/repl/piano.mjs';
 import { installStubs, outbox, setSlider, stubGlobals, toEvent } from './stubs.mjs';
 import * as midi from './midi.mjs';
+import * as midiin from './midiin.mjs';
+import * as io from './io.mjs';
 import * as sounds from './sounds.mjs';
 
 let state = { pattern: silence };
@@ -43,8 +46,10 @@ const instance = repl({
 });
 
 const ready = (async () => {
-  await evalScope(core, mini, tonal, xen, edo, mondo, gamepad, doughControls, { defaultmidimap: midi.defaultmidimap, midimaps: midi.midimaps },
-    { samples: sounds.samples, tables: sounds.tables, aliasBank: sounds.aliasBank, soundAlias: sounds.soundAlias },
+  await evalScope(core, mini, tonal, xen, edo, mondo, tidal, gamepad, doughControls, { defaultmidimap: midi.defaultmidimap, midimaps: midi.midimaps },
+    { midin: midiin.midin, midikeys: midiin.midikeys, macro: midiin.macro, move: io.move, motor: io.motor },
+    { samples: sounds.samples, tables: sounds.tables, aliasBank: sounds.aliasBank, soundAlias: sounds.soundAlias,
+      setSoundfontUrl: sounds.setSoundfontUrl },
     // StrudelDirt's controls that are not Strudel's: shimmer (its README's .shimmer(1)) and its
     // effect modules' parameters (pitch shift, grain envelope, tremolo, distort2)
     ...['shimmer', 'psrate', 'psdisp', 'tilt', 'plat', 'tremolorate', 'distort2'].map((n) => core.registerControl(n)));
@@ -73,6 +78,7 @@ async function evaluate(code) {
   await ready;
   lastError = undefined;
   autoloadLibrary();
+  midiin.resetKeyboards();
   await instance.evaluate(code, false);
   if (lastError) return { ok: false, error: String(lastError?.message ?? lastError) };
   return {
@@ -86,12 +92,13 @@ async function evaluate(code) {
 // What Strudel's Cyclist does each tick (core/cyclist.mjs, core/repl.mjs getSchedule), for one
 // query window: haps with an onset, sorted, then the default output unless an onSchedule
 // handler is dominant, then that handler.
-function query(begin, end, cps) {
+// keysOnly: the notes just played on the DAW's MIDI input (midiin.mjs, pushKey before).
+function query(begin, end, cps, keysOnly) {
   instance.scheduler.cps = cps; // .cpm() reads it
   const pattern = state.pattern ?? silence;
   const haps = pattern
-    .queryArc(begin, end, { _cps: cps, cyclist: 'concha' })
-    .filter((hap) => hap.hasOnset())
+    .queryArc(begin, end, keysOnly ? { _cps: cps, cyclist: 'concha', conchaKeys: true } : { _cps: cps, cyclist: 'concha' })
+    .filter((hap) => hap.hasOnset() && (!keysOnly || hap.value?.midikey !== undefined))
     .sort((a, b) => a.whole.begin.sub(b.whole.begin).valueOf());
   const events = [];
   outbox.events = [];
@@ -113,6 +120,7 @@ function query(begin, end, cps) {
     }
   }
   outbox.events = null;
+  if (keysOnly) midiin.clearKeys();
   return events;
 }
 
@@ -167,5 +175,6 @@ globalThis.concha = {
   soundNames: sounds.soundNames,
   registerSuperDirtSynths: sounds.registerSuperDirtSynths,
   registerSynthControls,
+  pushKey: midiin.pushKey,
   version: '0.1.0',
 };

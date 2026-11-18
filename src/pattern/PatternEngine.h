@@ -61,6 +61,9 @@ struct PatternHost {
     virtual std::string libraryAutoload() = 0;
     // A buffer rendered in JS (zzfx, bytebeat) for the sampler; returns its sample id (0: failed).
     virtual uint32_t publishBuffer(const float* data, size_t frames, double sampleRate) { return 0; }
+    // Live values read at query time (js/src/midiin.mjs): kind 0 = MIDI CC `a` on channel `b`
+    // (0 = any), 0..1; kind 1 = macro `a` (1..16), 0..1. Must be fast and never block.
+    virtual double control(int kind, int a, int b) { return 0.0; }
 };
 
 class PatternEngine {
@@ -87,7 +90,9 @@ public:
 
     // Haps with an onset in [begin, end) (cycles), in order. cps: cycles per second (the DAW's).
     // Returns false on error (message in *error); `out` is cleared first.
-    bool query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error = nullptr);
+    // keysOnly: only the notes just played on the MIDI input (pushed with evalJson("concha.pushKey(...)")).
+    bool query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error = nullptr,
+               bool keysOnly = false);
 
     // hap.show(true) of every hap in [begin, end), as Strudel's tests print them.
     std::vector<std::string> showHaps(double begin, double end);

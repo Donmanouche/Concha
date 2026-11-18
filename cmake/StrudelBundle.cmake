@@ -31,8 +31,21 @@ add_custom_command(
     VERBATIM)
 add_custom_target(concha_js DEPENDS ${CONCHA_BUNDLE})
 
+# Tidal's Haskell parser (hs2js): tree-sitter's C runtime and tree-sitter-haskell, see HaskellParser.h
+add_library(concha_treesitter STATIC
+    ${PROJECT_SOURCE_DIR}/third_party/tree-sitter/lib/src/lib.c
+    ${PROJECT_SOURCE_DIR}/third_party/tree-sitter-haskell/src/parser.c
+    ${PROJECT_SOURCE_DIR}/third_party/tree-sitter-haskell/src/scanner.c)
+target_include_directories(concha_treesitter
+    PUBLIC ${PROJECT_SOURCE_DIR}/third_party/tree-sitter/lib/include
+    PRIVATE ${PROJECT_SOURCE_DIR}/third_party/tree-sitter/lib/src ${PROJECT_SOURCE_DIR}/third_party/tree-sitter-haskell/src)
+set_target_properties(concha_treesitter PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 11)
+target_compile_options(concha_treesitter PRIVATE -w)
+
 add_library(concha_pattern STATIC
     src/pattern/PatternEngine.cpp
+    src/pattern/HaskellParser.cpp
+    src/input/Gamepad.cpp
     ${PROJECT_BINARY_DIR}/js/EmbeddedBundle.cpp)
 target_include_directories(concha_pattern PUBLIC ${PROJECT_SOURCE_DIR}/src)
-target_link_libraries(concha_pattern PRIVATE qjs)
+target_link_libraries(concha_pattern PRIVATE qjs concha_treesitter)

@@ -1,4 +1,6 @@
 #include "pattern/PatternEngine.h"
+#include "pattern/HaskellParser.h"
+#include "input/Gamepad.h"
 
 #include "pattern/EmbeddedBundle.h"
 
@@ -94,12 +96,18 @@ struct PatternEngine::Impl {
     return JS_UNDEFINED;
 }
 
-    // __concha_fetch(url), __concha_library(name), __concha_library_autoload()
+    // __concha_fetch(url), __concha_library(name), __concha_library_autoload(), __concha_buffer(),
+    // __concha_control(kind, a, b)
     static JSValue native(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv, int magic)
     {
         auto* impl = static_cast<Impl*>(JS_GetContextOpaque(ctx));
         PatternHost* host = impl ? impl->options.host : nullptr;
         if (!host) return JS_ThrowInternalError(ctx, "no host");
+        if (magic == 4) { // __concha_control(kind, a, b): read at query time, fast
+            int32_t v[3] = {0, 0, 0};
+            for (int k = 0; k < 3 && k < argc; ++k) JS_ToInt32(ctx, &v[k], argv[k]);
+            return JS_NewFloat64(ctx, host->control(v[0], v[1], v[2]));
+        }
         std::string arg;
         if (argc > 0) {
             size_t len = 0;
@@ -138,6 +146,30 @@ struct PatternEngine::Impl {
         if (!ok) return JS_ThrowInternalError(ctx, "%s", error.c_str());
         if (magic == 1 && out.empty()) return JS_UNDEFINED;
         return JS_NewStringLen(ctx, out.data(), out.size());
+    }
+
+    static JSValue hsParse(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
+    {
+        size_t len = 0;
+        const char* s = argc > 0 ? JS_ToCStringLen(ctx, &len, argv[0]) : nullptr;
+        if (!s) return JS_EXCEPTION;
+        const std::string json = parseHaskellJson(std::string_view(s, len));
+        JS_FreeCString(ctx, s);
+        return JS_NewStringLen(ctx, json.data(), json.size());
+    }
+
+    static JSValue gamepad(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
+    {
+        int32_t index = 0;
+        if (argc > 0) JS_ToInt32(ctx, &index, argv[0]);
+        const input::GamepadState s = input::gamepadState(index);
+        if (!s.connected) return JS_NULL;
+        JSValue o = JS_NewObject(ctx), axes = JS_NewArray(ctx), buttons = JS_NewArray(ctx);
+        for (uint32_t i = 0; i < s.axes.size(); ++i) JS_SetPropertyUint32(ctx, axes, i, JS_NewFloat64(ctx, s.axes[i]));
+        for (uint32_t i = 0; i < s.buttons.size(); ++i) JS_SetPropertyUint32(ctx, buttons, i, JS_NewFloat64(ctx, s.buttons[i]));
+        JS_SetPropertyStr(ctx, o, "axes", axes);
+        JS_SetPropertyStr(ctx, o, "buttons", buttons);
+        return o;
     }
 
     static int interrupt(JSContext*, void* opaque)
@@ -250,9 +282,14 @@ struct PatternEngine::Impl {
         for (int i = 0; i < 5; ++i)
             JS_SetPropertyStr(ctx, console, names[i], JS_NewCFunctionMagic(ctx, &Impl::consoleLog, names[i], 1, JS_CFUNC_generic_magic, i));
         JS_SetPropertyStr(ctx, global.v, "console", console);
+        // __concha_hsparse(code): Tidal's Haskell syntax tree (HaskellParser.h), with or without a host
+        JS_SetPropertyStr(ctx, global.v, "__concha_hsparse", JS_NewCFunction(ctx, &Impl::hsParse, "__concha_hsparse", 1));
+        // __concha_gamepad(i): {axes, buttons} of gamepad i, null when none (input/Gamepad.h)
+        JS_SetPropertyStr(ctx, global.v, "__concha_gamepad", JS_NewCFunction(ctx, &Impl::gamepad, "__concha_gamepad", 1));
         if (options.host) {
-            const char* natives[] = {"__concha_fetch", "__concha_library", "__concha_library_autoload", "__concha_buffer"};
-            for (int i = 0; i < 4; ++i)
+            const char* natives[] = {"__concha_fetch", "__concha_library", "__concha_library_autoload", "__concha_buffer",
+                                     "__concha_control"};
+            for (int i = 0; i < 5; ++i)
                 JS_SetPropertyStr(ctx, global.v, natives[i], JS_NewCFunctionMagic(ctx, &Impl::native, natives[i], 1, JS_CFUNC_generic_magic, i));
         }
 
@@ -409,7 +446,8 @@ EvalResult PatternEngine::evaluate(std::string_view code)
     return res;
 }
 
-bool PatternEngine::query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error)
+bool PatternEngine::query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error,
+                          bool keysOnly)
 {
     out.clear();
     if (!ok()) {
@@ -419,8 +457,8 @@ bool PatternEngine::query(double begin, double end, double cps, std::vector<Patt
     auto& I = *impl_;
     JSContext* ctx = I.ctx;
     I.arm(I.options.queryTimeout);
-    JSValue args[3] = {JS_NewFloat64(ctx, begin), JS_NewFloat64(ctx, end), JS_NewFloat64(ctx, cps)};
-    Value events(ctx, JS_Call(ctx, I.queryFn, I.concha, 3, args));
+    JSValue args[4] = {JS_NewFloat64(ctx, begin), JS_NewFloat64(ctx, end), JS_NewFloat64(ctx, cps), JS_NewBool(ctx, keysOnly)};
+    Value events(ctx, JS_Call(ctx, I.queryFn, I.concha, 4, args));
     I.disarm();
     if (events.isException()) {
         const std::string msg = I.exceptionText();

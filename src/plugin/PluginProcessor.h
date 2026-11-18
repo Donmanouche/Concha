@@ -99,6 +99,12 @@ private:
     std::atomic<float>* probe_ = nullptr;
 
     SpscRing<SchedEvent> toAudio_{8192};
+    SpscRing<MidiInNote> midiNotes_{256}; // DAW MIDI in note-ons -> pattern thread (midikeys)
+    // DAW MIDI in CCs (midin): [channel 0 = any, 1..16][cc], 0..1; saved with the project
+    std::array<std::atomic<float>, 17 * 128> midiCC_{};
+    std::array<std::atomic<float>*, 16> macros_{};
+    void readMidiInput(const juce::MidiBuffer& midi, int numSamples);
+    juce::MidiBuffer midiInput_;
     SeqLock<TransportState> transport_;
     SeqLock<SwapPoint> swap_;
     lib::LibraryHost host_{lib::SampleLibrary::instance()};

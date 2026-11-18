@@ -18,6 +18,9 @@ struct SampleData {
     int64_t frames = 0;
     double sampleRate = 48000.0;
     std::vector<float> planar; // channel 0 frames, then channel 1...
+    // soundfont zones (lib::decodeSoundfontZone): their loop (seconds, none when end <= start) and
+    // base detune (originalPitch - 100 coarseTune - fineTune, cents)
+    double loopStart = 0, loopEnd = 0, baseDetune = 0;
     const float* channel(int c) const { return planar.data() + int64_t(c < channels ? c : channels - 1) * frames; }
     double duration() const { return frames / sampleRate; }
 };
@@ -33,6 +36,15 @@ public:
     }
 
     // Loading side.
+    // `id` plays the same data as `existing` (loaded): soundfont notes sharing a zone
+    bool alias(uint32_t id, uint32_t existing)
+    {
+        if (id == 0 || id >= kMaxSamples || existing == 0 || existing >= kMaxSamples) return false;
+        const SampleData* d = slots_[existing].load(std::memory_order_acquire);
+        if (!d) return false;
+        slots_[id].store(d, std::memory_order_release);
+        return true;
+    }
     void publish(uint32_t id, std::unique_ptr<SampleData> data)
     {
         if (id == 0 || id >= kMaxSamples) return;

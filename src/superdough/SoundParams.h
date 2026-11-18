@@ -40,7 +40,7 @@ namespace concha::sd {
     X(warp) X(warpenv) X(warpattack) X(warpdecay) X(warpsustain) X(warprelease) X(warprate) X(warpsync) X(warpdepth)  \
     X(warpdc) X(warpskew) X(wtphaserand) X(transient) X(transsustain) X(stretch)
 
-enum class SoundType : uint8_t { Synth, Noise, Sample, Buffer, Wavetable, ScSynth, Unsupported };
+enum class SoundType : uint8_t { Synth, Noise, Sample, Buffer, Wavetable, ScSynth, Soundfont, Unsupported };
 enum class SynthWave : uint8_t { Triangle, Square, Sawtooth, Sine, One, User, Supersaw, Pulse, Sbd, Bus, Other };
 enum class FilterModel : uint8_t { Db12, Ladder, Db24 };
 
@@ -122,6 +122,7 @@ struct SoundParams {
     float frequency = 0.f;  // getFrequencyFromValue(value) for synths (Hz)
     float transpose = 0.f;  // samples: semitones from getCommonSampleInfo
     uint32_t sampleId = 0;  // samples: SampleCache id (0 = none)
+    float sfMidi = 48;      // Soundfont: the note's midi number (the zone is the sample)
     uint32_t fxChainId = 0;  // FX: FxChainStore chain, 0 = none
     // StrudelDirt's effect modules at the end of the voice (sd::FxServer), in its order
     FxModule fxModules[8];

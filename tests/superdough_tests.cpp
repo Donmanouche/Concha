@@ -1,4 +1,5 @@
 // superdough C++ (src/superdough) and the sample library (src/library).
+#include "library/Soundfont.h"
 #include "check.h"
 #include "library/SampleLibrary.h"
 #include "superdough/Convolver.h"
@@ -453,3 +454,24 @@ TEST("library: folder layouts become sample maps")
 }
 
 int main() { return RUN_TESTS(); }
+
+TEST("soundfont: a WebAudioFont preset's zones, base64 PCM, loop and base detune")
+{
+    // 4 int16 frames 1000, -1000, 2000, -2000 = e8 03 18 fc d0 07 30 f8
+    const std::string text = "console.log('x');\nvar _tone_x={\n zones:[\n  {\n   midi:0\n   ,originalPitch:6000\n"
+                             "   ,keyRangeLow:0\n   ,keyRangeHigh:59\n   ,loopStart:1\n   ,loopEnd:3\n   ,coarseTune:1\n"
+                             "   ,fineTune:-11\n   ,sampleRate:22050\n   ,sample:'6AMY/NAHMPg='\n  }\n  ,{keyRangeLow:60,keyRangeHigh:127,"
+                             "loopStart:2,loopEnd:4,sampleRate:44100,sample:\"6AMY/A==\"}\n ]\n};\n";
+    std::string error;
+    const auto zones = lib::parseSoundfont(text, error);
+    CHECK(zones.size() == 2);
+    CHECK(lib::findSoundfontZone(zones, 40) == 0 && lib::findSoundfontZone(zones, 60) == 0 && lib::findSoundfontZone(zones, 61) == 1);
+    auto d = lib::decodeSoundfontZone(zones[0], error);
+    CHECK(d && d->frames == 4 && d->sampleRate == 22050);
+    CHECK(d && std::fabs(d->planar[2] - 2000.f / 65536.f) < 1e-7f);
+    CHECK(d && d->loopEnd == 0 && d->loopStart == 0);              // loopStart 1 is not > 1: no loop
+    CHECK(d && std::fabs(d->baseDetune - (6000 - 100 + 11)) < 1e-9); // originalPitch - 100 coarse - fine
+    auto e = lib::decodeSoundfontZone(zones[1], error);
+    CHECK(e && std::fabs(e->loopStart - 2.0 / 44100) < 1e-12 && std::fabs(e->loopEnd - 4.0 / 44100) < 1e-12);
+    CHECK(lib::parseSoundfont("var x = {}", error).empty() && !error.empty());
+}

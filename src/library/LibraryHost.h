@@ -4,6 +4,8 @@
 #include "library/SampleLibrary.h"
 #include "pattern/PatternEngine.h"
 
+#include <functional>
+
 namespace concha::lib {
 
 struct LibraryHost final : PatternHost {
@@ -22,6 +24,9 @@ struct LibraryHost final : PatternHost {
     {
         return library.publishTransient(data, frames, sampleRate);
     }
+    // MIDI CCs and macros of the plug-in instance (set by the processor; none: 0)
+    std::function<double(int, int, int)> controls;
+    double control(int kind, int a, int b) override { return controls ? controls(kind, a, b) : 0.0; }
 };
 
 } // namespace concha::lib

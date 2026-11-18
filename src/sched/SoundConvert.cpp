@@ -754,6 +754,15 @@ bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::v
         out.sampleId = library->requestSample(url->string);
         return out.sampleId != 0;
     }
+    if (t == "soundfont") { // a General MIDI preset's zone (js/src/sounds.mjs, lib::Soundfont)
+        out.type = sd::SoundType::Soundfont;
+        const ParamValue* url = e.find("__url");
+        const ParamValue* midi = e.find("__midi");
+        out.sfMidi = midi ? float(midi->number) : 48.f;
+        if (!url || !library) return false;
+        out.sampleId = library->requestSample(url->string);
+        return out.sampleId != 0;
+    }
     if (t == "wavetable") {
         out.type = sd::SoundType::Wavetable;
         const ParamValue* url = e.find("__url");

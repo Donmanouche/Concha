@@ -1,5 +1,6 @@
 #include "sched/PatternWorker.h"
 #include "superdough/PhaseVocoder.h"
+#include "io/ExternalOut.h"
 #include "sc/ScDefs.h"
 
 #include "library/SampleLibrary.h"
@@ -170,6 +171,8 @@ void PatternWorker::queryLoop()
         }
 
         runQueries(t);
+        playMidiNotes(t);
+        flushExternals(t);
 
         PatternEngine& engine = *engines_[active_];
         for (auto& m : engine.takeLog()) log(std::move(m.type), std::move(m.message));
@@ -317,6 +320,72 @@ void PatternWorker::runQueries(const TransportState& t)
     }
 }
 
+// MQTT and serial messages: handed to the sender with their time once their epoch plays (the
+// prepared start waits for the start); messages of an older epoch (stop, jump) are dropped.
+void PatternWorker::flushExternals(const TransportState& t)
+{
+    for (auto& m : io::takeMessages()) log(m.find("connected") != std::string::npos || m.find("opened") != std::string::npos ? "info" : "warning", std::move(m));
+    if (externals_.empty()) return;
+    const bool looping = t.looping && t.loopEnd > t.loopStart + 1e-9;
+    const double loopLen = looping ? t.loopEnd - t.loopStart : 0.0;
+    auto unwrapped = [&](int32_t lap, double ppq) { return looping ? lap * loopLen + ppq : ppq; };
+    const auto now = io::Clock::now();
+    size_t kept = 0;
+    for (auto& x : externals_) {
+        if (x.epoch < t.epoch || (!t.playing && x.epoch <= t.epoch)) continue; // dropped
+        if (!t.playing || x.epoch != t.epoch) {
+            externals_[kept++] = std::move(x);
+            continue;
+        }
+        const double seconds = (unwrapped(x.lap, x.ppq) - unwrapped(t.lap, t.ppq)) * 60.0 / std::max(1e-6, t.bpm);
+        const PatternEvent& e = x.event;
+        auto str = [&](const char* k) {
+            const ParamValue* v = e.find(k);
+            return v ? (v->type == ParamValue::Type::String ? v->string : std::to_string(v->number)) : std::string();
+        };
+        auto num = [&](const char* k, double d) {
+            const ParamValue* v = e.find(k);
+            return v && v->type == ParamValue::Type::Number ? v->number : d;
+        };
+        const auto due = now + std::chrono::microseconds(int64_t(std::max(0.0, seconds + num("latency", 0)) * 1e6));
+        if (e.kind == "mqtt") {
+            io::MqttMessage m;
+            m.host = str("host");
+            m.client = str("client");
+            m.user = str("user");
+            m.password = str("password");
+            m.topic = str("topic");
+            m.payload = str("payload");
+            io::sendMqtt(std::move(m), due);
+        } else {
+            const std::string hex = str("bytes");
+            std::vector<uint8_t> bytes;
+            for (size_t i = 0; i + 1 < hex.size(); i += 2) bytes.push_back(uint8_t(std::stoi(hex.substr(i, 2), nullptr, 16)));
+            io::sendSerial(str("port"), int(num("baud", 115200)), std::move(bytes), due);
+        }
+    }
+    externals_.resize(kept);
+}
+
+void PatternWorker::playMidiNotes(const TransportState& t)
+{
+    if (!options_.midiNotes) return;
+    PatternEngine& engine = *engines_[active_];
+    const double N = std::max(1e-6, t.beatsPerCycle);
+    const double cps = t.bpm / 60.0 / N;
+    MidiInNote n;
+    while (options_.midiNotes->pop(n)) {
+        if (!t.playing || n.epoch != t.epoch) continue; // as Strudel: no notes while stopped
+        const double cycle = n.ppq / N;
+        char call[160];
+        std::snprintf(call, sizeof call, "concha.pushKey(%d,%d,%d,%.17g)", n.note, n.velocity, n.channel, cycle);
+        std::string json;
+        if (!engine.evalJson(call, json) || json != "true") continue; // no midikeys() in the code
+        std::string err;
+        if (engine.query(cycle - 1e-6, cycle + 1e-6, cps, scratch_, &err, true)) pushEvents(scratch_, t, n.lap, n.ppq);
+    }
+}
+
 PatternWorker::ActiveCodeInfo PatternWorker::activeCodeInfo() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -405,6 +474,9 @@ void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const Tr
                     --ev.lap;
                 }
             }
+        } else if (e.kind == "mqtt" || e.kind == "serial") { // sent from Concha at their time (flushExternals)
+            if (externals_.size() < 4096) externals_.push_back({ev.epoch, ev.lap, ev.ppq, e});
+            continue;
         } else {
             continue; // osc, csound...: later phases
         }

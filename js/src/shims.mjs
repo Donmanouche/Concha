@@ -36,7 +36,19 @@ if (!g.window.addEventListener) {
   g.window.removeEventListener = noop;
 }
 g.window.devicePixelRatio ??= 1;
-if (!g.navigator) g.navigator = { userAgent: 'Concha', getGamepads: () => [] };
+// Gamepads (@strudel/gamepad): the plug-in's reader (src/input/Gamepad) through __concha_gamepad(i),
+// read only for the index asked
+const gamepads = new Proxy([], {
+  get(target, prop) {
+    if (typeof prop === 'string' && /^[0-3]$/.test(prop)) {
+      const s = typeof g.__concha_gamepad === 'function' ? g.__concha_gamepad(Number(prop)) : null;
+      return s ? { index: Number(prop), connected: true, axes: s.axes, buttons: s.buttons.map((v) => ({ value: v, pressed: v > 0.5 })) } : null;
+    }
+    if (prop === 'length') return 4;
+    return target[prop];
+  },
+});
+if (!g.navigator) g.navigator = { userAgent: 'Concha', getGamepads: () => gamepads };
 if (!g.location) g.location = { href: 'concha://', origin: 'concha://', search: '', hash: '' };
 // Timers: Concha drives everything from C++, nothing waits on a timer.
 if (!g.setTimeout) {

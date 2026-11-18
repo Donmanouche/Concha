@@ -43,13 +43,14 @@ target_link_libraries(concha_superdough PUBLIC Threads::Threads)
 target_include_directories(concha_superdough PUBLIC src)
 
 # Sample library: named folders, decoding (dr_libs, stb_vorbis from ../deps), http cache (libcurl).
-add_library(concha_library STATIC src/library/Decoder.cpp src/library/SampleLibrary.cpp)
+add_library(concha_library STATIC src/library/Decoder.cpp src/library/SampleLibrary.cpp src/library/Soundfont.cpp)
 target_include_directories(concha_library PUBLIC src PRIVATE ${CONCHA_SHARED_DEPS}/dr_libs ${CONCHA_SHARED_DEPS}/stb)
 target_link_libraries(concha_library PUBLIC concha_superdough PkgConfig::CONCHA_CURL Threads::Threads)
 set_source_files_properties(src/library/Decoder.cpp PROPERTIES COMPILE_OPTIONS "-w")
 
 # Scheduler: pattern thread (QuickJS) -> audio thread. JUCE-free.
-add_library(concha_sched STATIC src/sched/PatternWorker.cpp src/sched/AudioScheduler.cpp src/sched/SoundConvert.cpp)
+add_library(concha_sched STATIC src/sched/PatternWorker.cpp src/sched/AudioScheduler.cpp src/sched/SoundConvert.cpp
+    src/io/ExternalOut.cpp)
 target_include_directories(concha_sched PUBLIC src)
 target_link_libraries(concha_sched PUBLIC concha_pattern concha_library concha_scdefs Threads::Threads)
 

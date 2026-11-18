@@ -40,6 +40,13 @@ ConchaProcessor::ConchaProcessor() : AudioProcessor(makeBuses()), state_(*this, 
     beatsPerCycle_ = state_.getRawParameterValue("beatsPerCycle");
     freeRun_ = state_.getRawParameterValue("freeRun");
     probe_ = state_.getRawParameterValue("syncProbe");
+    for (int i = 0; i < 16; ++i) macros_[size_t(i)] = state_.getRawParameterValue("macro" + juce::String(i + 1));
+    // midin() and macro() read these at query time (pattern thread)
+    host_.controls = [this](int kind, int a, int b) -> double {
+        if (kind == 0 && a >= 0 && a < 128 && b >= 0 && b <= 16) return midiCC_[size_t(b * 128 + a)].load(std::memory_order_relaxed);
+        if (kind == 1 && a >= 1 && a <= 16) return macros_[size_t(a - 1)]->load(std::memory_order_relaxed);
+        return 0.0;
+    };
     state_.state.setProperty("code", kDefaultCode, nullptr);
     worker_.start(); // the JS engines start on the pattern thread, the DAW is not blocked
     worker_.requestEvaluate(kDefaultCode);
@@ -52,6 +59,7 @@ PatternWorker::Options ConchaProcessor::workerOptions(lib::LibraryHost& host)
     PatternWorker::Options o;
     o.engine.host = &host;
     o.library = &host.library;
+    o.midiNotes = &midiNotes_;
     o.onNewSynthDefs = [this] { // the user's new SynthDefs, to this instance's World
         std::lock_guard<std::mutex> lock(scHostMutex_);
         if (scHost_) scHost_->loadNewDefs();
@@ -67,6 +75,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ConchaProcessor::createLayou
     layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{"beatsPerCycle", 1}, "Beats per cycle", 1, 32, 4));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"freeRun", 1}, "Free run", false));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"syncProbe", 1}, "Sync probe", false));
+    for (int i = 1; i <= 16; ++i) // macro(n) in patterns
+        layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"macro" + juce::String(i), 1}, "Macro " + juce::String(i),
+                                                               0.0f, 1.0f, 0.0f));
     for (int i = 1; i <= kNumMacros; ++i)
         layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"macro" + juce::String(i), 1},
                                                                "Macro " + juce::String(i),
@@ -103,6 +114,7 @@ void ConchaProcessor::prepareToPlay(double sampleRate, int)
     scOrbitFx_ = std::make_unique<sc::ScOrbitFx>(sampleRate); // StrudelDirt's orbit effects
     if (scOrbitFx_->ok()) superdough_.setOrbitFxServer(scOrbitFx_.get());
     freeRunPpq_ = 0.0;
+    midiInput_.ensureSize(8192);
 }
 
 TransportSnapshot ConchaProcessor::readTransport(int numSamples, HostPosition& host)
@@ -154,7 +166,9 @@ void ConchaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
-    midi.clear(); // incoming MIDI: phase 7
+    midiInput_.clear(); // read once the block's transport is known (preallocated: no allocation here)
+    midiInput_.addEvents(midi, 0, -1, 0);
+    midi.clear();
 
     // Per-bus channel pointers (disabled buses stay null).
     std::array<juce::AudioBuffer<float>, kNumStereoBuses> views;
@@ -179,6 +193,7 @@ void ConchaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     const double N = std::max(1.0f, beatsPerCycle_->load());
     BlockSink sink(midi, superdough_, sampleRate_, N);
     scheduler_.process(host, numSamples, N, sink);
+    readMidiInput(midiInput_, numSamples);
     superdough_.render(busChannels.data(), numBuses, numSamples);
     for (int b = 0; b < numBuses; ++b) { // meters
         const auto i = static_cast<size_t>(b);
@@ -190,6 +205,34 @@ void ConchaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     if (probe_->load() > 0.5f) probeGen_.process(t, numSamples, buses.data(), numBuses, midi);
+}
+
+// The DAW's MIDI input: CCs into midiCC_ (midin), note-ons to the pattern thread (midikeys) at their
+// position plus 10 ms, as Strudel's midikeys (latencySeconds 0.01).
+void ConchaProcessor::readMidiInput(const juce::MidiBuffer& midi, int numSamples)
+{
+    if (midi.isEmpty()) return;
+    const TransportState ts = transport_.load(); // this block's, as the scheduler published it
+    for (const auto m : midi) {
+        const auto msg = m.getMessage();
+        const int chan = msg.getChannel(); // 1..16, 0 for system messages
+        if (msg.isController() && chan >= 1) {
+            const float v = float(msg.getControllerValue()) / 127.0f;
+            const int cc = msg.getControllerNumber();
+            midiCC_[size_t(cc)].store(v, std::memory_order_relaxed);
+            midiCC_[size_t(chan * 128 + cc)].store(v, std::memory_order_relaxed);
+        } else if (msg.isNoteOn() && ts.playing) {
+            MidiInNote n;
+            n.epoch = ts.epoch;
+            n.lap = ts.lap;
+            const double offset = std::clamp(m.samplePosition, 0, std::max(0, numSamples - 1)) / sampleRate_ + 0.01;
+            n.ppq = ts.ppq + offset * ts.bpm / 60.0;
+            n.note = uint8_t(msg.getNoteNumber());
+            n.velocity = msg.getVelocity();
+            n.channel = uint8_t(chan);
+            midiNotes_.push(n); // full (256 notes waiting): dropped
+        }
+    }
 }
 
 void ConchaProcessor::evaluate(const juce::String& code)
@@ -206,6 +249,11 @@ void ConchaProcessor::setCode(const juce::String& code) { state_.state.setProper
 
 void ConchaProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
+    // midin's last values, as Strudel keeps them in localStorage: "chan:cc:value ..."
+    juce::String cc;
+    for (int i = 0; i < 17 * 128; ++i)
+        if (const float v = midiCC_[size_t(i)].load(); v != 0.f) cc << (i / 128) << ':' << (i % 128) << ':' << v << ' ';
+    state_.state.setProperty("midiCC", cc.trim(), nullptr);
     if (auto xml = state_.copyState().createXml()) copyXmlToBinary(*xml, destData);
 }
 
@@ -214,6 +262,13 @@ void ConchaProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
         if (xml->hasTagName(state_.state.getType())) {
             state_.replaceState(juce::ValueTree::fromXml(*xml));
+            for (auto& v : midiCC_) v.store(0.f);
+            for (const auto& item : juce::StringArray::fromTokens(state_.state.getProperty("midiCC").toString(), " ", "")) {
+                const auto parts = juce::StringArray::fromTokens(item, ":", "");
+                if (parts.size() != 3) continue;
+                const int chan = parts[0].getIntValue(), cc = parts[1].getIntValue();
+                if (chan >= 0 && chan <= 16 && cc >= 0 && cc < 128) midiCC_[size_t(chan * 128 + cc)].store(parts[2].getFloatValue());
+            }
             worker_.requestEvaluate(code().toStdString()); // the project's code plays again
         }
     }

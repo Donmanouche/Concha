@@ -41,6 +41,8 @@ public:
         // After the user's SynthDef folders gave new SynthDefs (read before each evaluation), on
         // the evaluation thread: sends them to the scsynth World (ScHost::loadNewDefs).
         std::function<void()> onNewSynthDefs;
+        // Note-ons of the DAW's MIDI input (audio thread -> this worker), played through midikeys().
+        SpscRing<MidiInNote>* midiNotes = nullptr;
     };
 
     struct Status {
@@ -101,6 +103,15 @@ private:
     void queryLoop();
     void evalLoop();
     void runQueries(const TransportState& t);
+    void playMidiNotes(const TransportState& t);
+    void flushExternals(const TransportState& t);
+    struct External { // an MQTT / serial message waiting for its epoch to play
+        uint32_t epoch = 0;
+        int32_t lap = 0;
+        double ppq = 0;
+        PatternEvent event;
+    };
+    std::vector<External> externals_;
     void pushEvents(const std::vector<PatternEvent>& events, const TransportState& t, int32_t lap, double chunkStartPpq);
     void log(std::string type, std::string message);
 
