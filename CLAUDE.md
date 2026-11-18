@@ -133,6 +133,9 @@ Bitwig: `~/.clap/Concha.clap`, `~/.vst3/Concha.vst3` (copy after a build when th
   SampleStore::alias for the other notes); SampleData carries loop and baseDetune.
 - Never run JS frames on the query thread (a frame can take 100s of ms): visuals have their own engine.
 - `concha_ui_shot` snapshots have no OpenGL; CONCHA_SHOT_GL=1 opens an off-screen GL window and composes both.
+- Interface zoom: everything lives in ConchaEditor::Content, scaled by an AffineTransform; the editor is the
+  host's window (logical size x zoom). Layout code takes the content's bounds (layout()), not the editor's.
+  The zoom setting is per computer (~/.config/Concha/ui.txt), written only when the user picks one.
 - No OpenGL for the interface on Linux: an attached OpenGLContext froze typing (JUCE paints components on its
   thread under the message lock; makeActive holds the X11 lock while dri3 waits for a buffer). The editor's
   context is attached only while a shader is declared, with setSwapInterval(0). Measure with

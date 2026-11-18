@@ -74,6 +74,9 @@ public:
     explicit SettingsPanel(juce::AudioProcessorValueTreeState& state);
     ~SettingsPanel() override;
     std::function<void()> onChanged; // editor options changed
+    // the interface zoom: `setting` 0 = auto, `effective` the zoom in use
+    void setZoom(double setting, double effective);
+    std::function<void(double)> onZoom;
     void resized() override;
     void paint(juce::Graphics& g) override;
 
@@ -87,7 +90,8 @@ private:
     Content content_{*this};
     juce::Viewport viewport_;
     juce::AudioProcessorValueTreeState& state_;
-    juce::Label syncTitle_, editorTitle_, beatsLabel_, fontLabel_;
+    juce::Label syncTitle_, editorTitle_, beatsLabel_, fontLabel_, zoomLabel_;
+    juce::ComboBox zoom_;
     juce::Slider beats_, font_;
     juce::ToggleButton freeRun_{"Free run (play while the DAW is stopped)"}, probe_{"Sync probe (test signal)"};
     juce::ToggleButton highlight_{"Highlight playing notes"}, flash_{"Flash on evaluate"},

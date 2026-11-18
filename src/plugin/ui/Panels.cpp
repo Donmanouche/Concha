@@ -225,6 +225,14 @@ SettingsPanel::SettingsPanel(juce::AudioProcessorValueTreeState& state) : state_
     }
     beatsLabel_.setText("Beats per cycle (1 cycle = N quarter notes)", juce::dontSendNotification);
     fontLabel_.setText("Font size", juce::dontSendNotification);
+    zoomLabel_.setText("Interface zoom", juce::dontSendNotification);
+    zoomLabel_.setTooltip("Saved for this computer, not in the project. Ctrl + = / - / 0");
+    zoom_.addItem("Auto", 1);
+    for (int pc : {100, 110, 125, 150, 175, 200, 225, 250}) zoom_.addItem(juce::String(pc) + " %", pc);
+    zoom_.onChange = [this] {
+        const int id = zoom_.getSelectedId();
+        if (onZoom && id > 0) onZoom(id == 1 ? 0.0 : id / 100.0);
+    };
     beats_.setSliderStyle(juce::Slider::IncDecButtons);
     beats_.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 50, 24);
     font_.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -254,7 +262,8 @@ SettingsPanel::SettingsPanel(juce::AudioProcessorValueTreeState& state) : state_
     probeAttach_ = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(state_, "syncProbe", probe_);
 
     for (auto* c : std::initializer_list<juce::Component*>{&syncTitle_, &beatsLabel_, &beats_, &freeRun_, &probe_, &editorTitle_,
-                                                            &fontLabel_, &font_, &highlight_, &flash_, &completion_, &lineNumbers_})
+                                                            &fontLabel_, &font_, &zoomLabel_, &zoom_, &highlight_, &flash_,
+                                                            &completion_, &lineNumbers_})
         content_.addAndMakeVisible(c);
     viewport_.setViewedComponent(&content_, false);
     viewport_.setScrollBarsShown(true, false);
@@ -262,6 +271,15 @@ SettingsPanel::SettingsPanel(juce::AudioProcessorValueTreeState& state) : state_
 }
 
 SettingsPanel::~SettingsPanel() = default;
+
+void SettingsPanel::setZoom(double setting, double effective)
+{
+    // Auto shows the zoom it found
+    zoom_.changeItemText(1, "Auto (" + juce::String(juce::roundToInt(effective * 100)) + " %)");
+    const int id = setting <= 0 ? 1 : juce::roundToInt(setting * 100);
+    if (zoom_.indexOfItemId(id) < 0) zoom_.addItem(juce::String(id) + " %", id);
+    zoom_.setSelectedId(id, juce::dontSendNotification);
+}
 
 void SettingsPanel::resized()
 {
@@ -287,6 +305,9 @@ void SettingsPanel::layoutContent()
     auto f = row(26);
     fontLabel_.setBounds(f.removeFromLeft(80));
     font_.setBounds(f);
+    auto z = row(26);
+    zoomLabel_.setBounds(z.removeFromLeft(110));
+    zoom_.setBounds(z.removeFromLeft(150));
     highlight_.setBounds(row(24));
     flash_.setBounds(row(24));
     completion_.setBounds(row(24));

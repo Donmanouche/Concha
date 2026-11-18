@@ -425,6 +425,7 @@ bool CodeView::keyPressed(const juce::KeyPress& key)
 {
     const auto mods = key.getModifiers();
     const int code = key.getKeyCode();
+    if (onWindowKey && onWindowKey(key)) return true;
     if (completion_->isVisible()) {
         if (code == juce::KeyPress::upKey) { completion_->move(-1); return true; }
         if (code == juce::KeyPress::downKey) { completion_->move(1); return true; }

@@ -108,6 +108,7 @@ target_sources(Concha PRIVATE
     src/plugin/ui/Canvas2D.cpp
     src/plugin/ui/ShaderLayer.cpp
     src/plugin/ui/ScopeStrip.cpp
+    src/plugin/ui/UiZoom.cpp
     src/plugin/ui/Panels.cpp
     ${PROJECT_BINARY_DIR}/js/EmbeddedDocs.cpp)
 

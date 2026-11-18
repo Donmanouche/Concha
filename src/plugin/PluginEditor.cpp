@@ -6,9 +6,23 @@ namespace concha {
 
 using namespace ui;
 
+// The interface, at its logical size, scaled by the zoom inside the host's window.
+class ConchaEditor::Content final : public juce::Component {
+public:
+    explicit Content(ConchaEditor& e) : editor_(e) {}
+    void paint(juce::Graphics& g) override { editor_.paintChrome(g, getLocalBounds()); }
+    void resized() override { editor_.layout(getLocalBounds()); }
+
+private:
+    ConchaEditor& editor_;
+};
+
 ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(p)
 {
     setLookAndFeel(&lookAndFeel_);
+    content_ = std::make_unique<Content>(*this);
+    zoomSetting_ = loadZoomSetting();
+    zoom_ = zoomSetting_ > 0 ? zoomSetting_ : systemScale({}, 1.0);
     // OpenGL paints the editor only while a shader is drawn behind the code (attached then): JUCE's
     // OpenGL thread takes the message thread's lock to paint components and keeps it while the
     // display server hands it a buffer, which froze typing. The text is painted in software.
@@ -26,8 +40,8 @@ ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(
     code_.onWordAtCaret = [this](const DocEntry* e, const juce::String& word) {
         if (e && reference_) reference_->show(e, word);
     };
-    addAndMakeVisible(code_);
-    addChildComponent(strip_);
+    content_->addAndMakeVisible(code_);
+    content_->addChildComponent(strip_);
 
     // ---- top bar ----
     update_.setTooltip("Evaluate the code (Ctrl+Enter or Alt+Enter)");
@@ -43,7 +57,7 @@ ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(
     status_.setColour(juce::Label::textColourId, theme::dim);
     meters_.setTooltip("Outputs: Main (orbits 0 and 1), then Orbit 2 to 16");
     for (auto* c : std::initializer_list<juce::Component*>{&update_, &stop_, &panelButton_, &transport_, &status_, &meters_})
-        addAndMakeVisible(c);
+        content_->addAndMakeVisible(c);
 
     // ---- side panel ----
     console_ = new ConsolePanel();
@@ -63,12 +77,15 @@ ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(
     sounds_->onInsert = [this](const juce::String& name) { insert(name); };
     sounds_->onFolders = [this] { showFolders(); };
     settings_->onChanged = [this] { applySettings(); };
-    addAndMakeVisible(tabs_);
+    content_->addAndMakeVisible(tabs_);
+    addAndMakeVisible(*content_);
     applySettings();
 
     setResizable(true, true);
-    setResizeLimits(640, 400, 3000, 2000);
-    setSize(juce::jlimit(640, 3000, (int)ui.getProperty("width", 1100)), juce::jlimit(400, 2000, (int)ui.getProperty("height", 680)));
+    settings_->setZoom(zoomSetting_, zoom_);
+    settings_->onZoom = [this](double z) { setZoomSetting(z); };
+    code_.onWindowKey = [this](const juce::KeyPress& k) { return zoomKey(k); };
+    applyZoom();
     startTimerHz(60);
     code_.grabKeyboardFocus();
 }
@@ -110,7 +127,7 @@ void ConchaEditor::insert(const juce::String& text)
 void ConchaEditor::togglePanel()
 {
     panelOpen_ = !panelOpen_;
-    resized();
+    content_->resized(); // the layout, at the same size
 }
 
 void ConchaEditor::showFolders()
@@ -121,8 +138,8 @@ void ConchaEditor::showFolders()
     }
     library_ = std::make_unique<LibraryPanel>([this] { proc_.reloadLibrary(); });
     library_->onClose = [this] { juce::MessageManager::callAsync([this] { library_.reset(); }); };
-    addAndMakeVisible(*library_);
-    resized();
+    content_->addAndMakeVisible(*library_);
+    content_->resized();
 }
 
 void ConchaEditor::codeDocumentTextInserted(const juce::String&, int)
@@ -139,27 +156,44 @@ void ConchaEditor::codeDocumentTextDeleted(int, int)
 
 void ConchaEditor::paint(juce::Graphics& g)
 {
+    // under the scaled content (its rounding edge); the shader shows through the code
+    if (shader_.active()) g.excludeClipRegion(getLocalArea(&code_, code_.getLocalBounds()));
+    g.fillAll(theme::background);
+}
+
+void ConchaEditor::paintChrome(juce::Graphics& g, juce::Rectangle<int> area)
+{
     if (shader_.active()) g.excludeClipRegion(code_.getBounds()); // the shader shows through there
     if (strip_.isVisible()) g.excludeClipRegion(strip_.getBounds()); // the band paints itself (opaque)
     g.fillAll(theme::background);
-    auto top = getLocalBounds().removeFromTop(44);
+    auto top = area.removeFromTop(44);
     g.setColour(theme::panel);
     g.fillRect(top);
     g.setColour(theme::panelLine);
-    g.drawHorizontalLine(top.getBottom() - 1, 0.f, (float)getWidth());
+    g.drawHorizontalLine(top.getBottom() - 1, 0.f, (float)area.getWidth());
     g.setColour(theme::accent);
     g.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
     g.drawText("concha", 14, 0, 100, 44, juce::Justification::centredLeft);
-    auto bottom = getLocalBounds().removeFromBottom(24);
+    auto bottom = area.removeFromBottom(24);
     g.setColour(theme::panel);
     g.fillRect(bottom);
     g.setColour(theme::panelLine);
-    g.drawHorizontalLine(bottom.getY(), 0.f, (float)getWidth());
+    g.drawHorizontalLine(bottom.getY(), 0.f, (float)area.getWidth());
 }
 
 void ConchaEditor::resized()
 {
-    auto r = getLocalBounds();
+    if (!content_) return;
+    content_->setTransform(juce::AffineTransform::scale(float(zoom_)));
+    content_->setBounds(0, 0, juce::roundToInt(getWidth() / zoom_), juce::roundToInt(getHeight() / zoom_));
+    auto& ui = proc_.state().state;
+    ui.setProperty("width", content_->getWidth(), nullptr); // the logical size, without the zoom
+    ui.setProperty("height", content_->getHeight(), nullptr);
+}
+
+void ConchaEditor::layout(juce::Rectangle<int> area)
+{
+    auto r = area;
     auto top = r.removeFromTop(44).reduced(8, 7);
     top.removeFromLeft(100);
     update_.setBounds(top.removeFromLeft(76));
@@ -182,10 +216,72 @@ void ConchaEditor::resized()
     if (stripWanted_) strip_.setBounds(r.removeFromBottom(juce::jlimit(170, 320, r.getHeight() * 34 / 100)));
     code_.setBounds(r.reduced(10, 6)); // strudel.cc's editor has some air around the text
     if (library_) library_->setBounds(r);
-    auto& ui = proc_.state().state;
-    ui.setProperty("width", getWidth(), nullptr);
-    ui.setProperty("height", getHeight(), nullptr);
 }
+
+// ---- zoom ----
+
+void ConchaEditor::applyZoom()
+{
+    auto& ui = proc_.state().state;
+    const int w = juce::jlimit(640, 3000, (int)ui.getProperty("width", 1100)), h = juce::jlimit(400, 2000, (int)ui.getProperty("height", 680));
+    setResizeLimits(juce::roundToInt(640 * zoom_), juce::roundToInt(400 * zoom_), juce::roundToInt(3000 * zoom_), juce::roundToInt(2000 * zoom_));
+    const int pw = juce::roundToInt(w * zoom_), ph = juce::roundToInt(h * zoom_);
+    if (getWidth() == pw && getHeight() == ph) {
+        resized();
+        content_->resized();
+    }
+    else setSize(pw, ph);
+    repaint();
+}
+
+void ConchaEditor::setZoomSetting(double setting, bool save)
+{
+    zoomSetting_ = setting <= 0 ? 0 : juce::jlimit(kZoomMin, kZoomMax, setting);
+    if (save) saveZoomSetting(zoomSetting_); // only a choice of the user is written
+    double next = zoomSetting_;
+    if (next <= 0) { // auto: the system's scale, unless JUCE already scales this window
+        const auto* peer = getPeer();
+        next = peer && peer->getPlatformScaleFactor() > 1.01 ? 1.0 : systemScale(getScreenBounds(), hostScale_);
+    }
+    settings_->setZoom(zoomSetting_, next);
+    if (std::abs(next - zoom_) < 1e-3) return;
+    // keep the logical size: the window grows or shrinks with the zoom
+    zoom_ = next;
+    applyZoom();
+}
+
+void ConchaEditor::setScaleFactor(float newScale)
+{
+    hostScale_ = newScale; // the host scales nothing itself here: the zoom does (auto)
+    if (zoomSetting_ <= 0) setZoomSetting(0, false);
+}
+
+void ConchaEditor::parentHierarchyChanged()
+{
+    if (zoomSetting_ <= 0 && getPeer()) setZoomSetting(0, false); // the window is on a screen now: its scale
+}
+
+bool ConchaEditor::zoomKey(const juce::KeyPress& key)
+{
+    if (!key.getModifiers().isCommandDown()) return false;
+    const auto c = key.getTextCharacter();
+    const int code = key.getKeyCode();
+    static const double steps[] = {1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5};
+    if (c == '=' || c == '+' || code == '=' || code == '+') {
+        for (double s : steps)
+            if (s > zoom_ + 1e-3) return setZoomSetting(s), true;
+        return true;
+    }
+    if (c == '-' || code == '-') {
+        for (int i = int(std::size(steps)) - 1; i >= 0; --i)
+            if (steps[i] < zoom_ - 1e-3) return setZoomSetting(steps[i]), true;
+        return true;
+    }
+    if (c == '0' || code == '0') return setZoomSetting(0), true; // back to auto
+    return false;
+}
+
+bool ConchaEditor::keyPressed(const juce::KeyPress& key) { return zoomKey(key); }
 
 void ConchaEditor::updateShader(const std::vector<PatternWorker::VisualHap>& haps, double cycle, double cps)
 {
@@ -273,7 +369,7 @@ void ConchaEditor::timerCallback()
         stripFft_ = info.visuals.fft.empty() ? std::string() : info.visuals.fft.front();
         if (strip_.wanted(stripModel_) != stripWanted_) {
             stripWanted_ = !stripWanted_;
-            resized();
+            content_->resized();
         }
         shader_.setSource(info.shader);
         if (!info.shader.empty() && !gl_.isAttached()) gl_.attachTo(*this);
@@ -297,7 +393,7 @@ void ConchaEditor::timerCallback()
     proc_.setVisuals(true, code_.getWidth(), code_.getHeight(), 1.0); // the editor exists while its window is open
     {
         std::lock_guard<std::mutex> lock(shaderAreaMutex_);
-        shaderArea_ = code_.getBounds();
+        shaderArea_ = getLocalArea(&code_, code_.getLocalBounds());
     }
     if (shader_.active()) {
         const double N = std::max(1.0, double(proc_.beatsPerCycle()));
@@ -308,7 +404,7 @@ void ConchaEditor::timerCallback()
     for (const auto& e : shader_.takeErrors()) console_->add(juce::String::fromUTF8(e.c_str()), theme::error);
     {
         std::lock_guard<std::mutex> lock(shaderAreaMutex_);
-        stripArea_ = strip_.isVisible() ? strip_.getBounds() : juce::Rectangle<int>();
+        stripArea_ = strip_.isVisible() ? getLocalArea(&strip_, strip_.getLocalBounds()) : juce::Rectangle<int>();
     }
     if (stripWanted_ && (ticks_ % 2 == 0)) updateStrip(); // 30 frames a second: enough for the band, half the painting
     if (auto frames = proc_.takeFrames(); !frames.empty()) code_.addFrames(frames);

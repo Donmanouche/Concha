@@ -26,6 +26,8 @@ public:
     ~CodeView() override;
 
     std::function<void()> onEvaluate, onHush;
+    // keys for the window (Ctrl + = / - / 0: zoom), asked first; true: handled
+    std::function<bool(const juce::KeyPress&)> onWindowKey;
     // the function under the caret changed (nullptr: none), for the Reference panel
     std::function<void(const DocEntry*, const juce::String& word)> onWordAtCaret;
 

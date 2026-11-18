@@ -12,6 +12,7 @@
 #include "plugin/ui/ScopeStrip.h"
 #include "plugin/ui/ShaderLayer.h"
 #include "plugin/ui/Theme.h"
+#include "plugin/ui/UiZoom.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_opengl/juce_opengl.h>
@@ -32,6 +33,14 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
+    void setScaleFactor(float newScale) override; // the host's display scale (VST3 / CLAP)
+    void parentHierarchyChanged() override;
+
+    // Interface zoom (Settings, Ctrl + = / - / 0): `setting` 0 = auto (the system's scale), else 1..2.5.
+    // Saved for the computer (ui::saveZoomSetting), not in the project.
+    void setZoomSetting(double setting, bool save = true);
+    double zoom() const { return zoom_; }
 
     // For tools (concha_ui_shot): what OpenGL drew (shader, oscilloscope band) under the components,
     // after each frame (GL thread).
@@ -47,6 +56,14 @@ private:
     void togglePanel();
     void showFolders();
     void insert(const juce::String& text);
+    // everything lives in content_, scaled by the zoom (the editor itself is the host's window)
+    class Content;
+    void paintChrome(juce::Graphics& g, juce::Rectangle<int> area);
+    void layout(juce::Rectangle<int> area);
+    void applyZoom();
+    bool zoomKey(const juce::KeyPress& key);
+    double zoomSetting_ = 0, zoom_ = 1, hostScale_ = 1;
+    std::unique_ptr<Content> content_;
     // shader(`...`) behind the code (ui::ShaderLayer), on the OpenGL thread
     void newOpenGLContextCreated() override { gl_.setSwapInterval(0); } // no vsync wait while JUCE holds the locks
     void renderOpenGL() override;
