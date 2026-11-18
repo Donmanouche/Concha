@@ -1,0 +1,6 @@
+includePaths:
+    -   @VOWEL@
+    -   @STRUDELDIRT@
+excludePaths: []
+postInlineWarnings: false
+excludeDefaultPaths: false

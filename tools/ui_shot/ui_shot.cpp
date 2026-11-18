@@ -1,5 +1,6 @@
 // Renders Concha's editor off screen to a PNG, with a pattern playing (free run), to check the
-// UI without a DAW: concha_ui_shot <code.js> <out.png> [width height] [ms] [tab] [text to type at the end]
+// UI without a DAW: concha_ui_shot <code.js> <out.png> [width height] [ms] [tab | library] [text to type at the end]
+#include "plugin/LibraryPanel.h"
 #include "plugin/PluginEditor.h"
 #include "plugin/PluginProcessor.h"
 #include "plugin/ui/CodeView.h"
@@ -58,7 +59,14 @@ int main(int argc, char** argv)
                 }
             }
             juce::Timer::callAfterDelay(400, [&] {
-                const juce::Image shot = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
+                // tab "library": the sample / SynthDef folders panel instead of the window
+                std::unique_ptr<concha::LibraryPanel> library;
+                if (argc > 6 && juce::String(argv[6]) == "library") {
+                    library = std::make_unique<concha::LibraryPanel>([] {});
+                    library->setSize(editor->getWidth(), editor->getHeight());
+                }
+                juce::Component& target = library ? static_cast<juce::Component&>(*library) : *editor;
+                const juce::Image shot = target.createComponentSnapshot(target.getLocalBounds(), true, 1.0f);
                 juce::File out{outPath};
                 out.deleteFile();
                 juce::FileOutputStream os{out};

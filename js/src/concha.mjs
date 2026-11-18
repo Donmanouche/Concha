@@ -44,7 +44,10 @@ const instance = repl({
 
 const ready = (async () => {
   await evalScope(core, mini, tonal, xen, edo, mondo, gamepad, doughControls, { defaultmidimap: midi.defaultmidimap, midimaps: midi.midimaps },
-    { samples: sounds.samples, tables: sounds.tables, aliasBank: sounds.aliasBank, soundAlias: sounds.soundAlias });
+    { samples: sounds.samples, tables: sounds.tables, aliasBank: sounds.aliasBank, soundAlias: sounds.soundAlias },
+    // StrudelDirt's controls that are not Strudel's: shimmer (its README's .shimmer(1)) and its
+    // effect modules' parameters (pitch shift, grain envelope, tremolo, distort2)
+    ...['shimmer', 'psrate', 'psdisp', 'tilt', 'plat', 'tremolorate', 'distort2'].map((n) => core.registerControl(n)));
   installStubs();
   await evalScope(stubGlobals);
 })();
@@ -135,6 +138,19 @@ async function runSuite(cases, only) {
   return results;
 }
 
+// The controls of the SynthDefs played with s("name") that Strudel doesn't have (a user's
+// SynthDef with a `harm` control: .harm(2), harm("1 2")), as Strudel's createParam makes them.
+function registerSynthControls(names) {
+  let n = 0;
+  for (const name of names) {
+    if (!/^[A-Za-z_$][\w$]*$/.test(name) || name in core.Pattern.prototype || core.controls?.[name]) continue;
+    const bag = core.registerControl(name);
+    if (globalThis[name] === undefined) globalThis[name] = bag[name];
+    ++n;
+  }
+  return n;
+}
+
 function log() {
   const out = globalThis.__conchaLog.splice(0);
   return out;
@@ -149,5 +165,7 @@ globalThis.concha = {
   log,
   setSlider,
   soundNames: sounds.soundNames,
+  registerSuperDirtSynths: sounds.registerSuperDirtSynths,
+  registerSynthControls,
   version: '0.1.0',
 };

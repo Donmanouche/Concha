@@ -1,6 +1,9 @@
 // concha_render: renders Strudel code with superdough C++ into a WAV file, without the plug-in.
 //
-//   concha_render [--cycles N] [--cps X] [--rate SR] [--stereo-outputs K] <code.js | -> <out.wav>
+//   concha_render [--cycles N] [--cps X] [--rate SR] [--stereo-outputs K] [--trace-sc file] <code.js | -> <out.wav>
+//   --trace-sc writes one JSON line per StrudelDirt instrument: the hap ("hap", its value without
+//   Concha's __ keys, cycle, duration in cycles, cps, onset sample) and the synth started ("synth":
+//   onset, SynthDef, controls), for tools/sc/compare_strudeldirt.py.
 //
 // Same path as the plug-in: Strudel in QuickJS -> SoundConverter -> superdough Engine, samples
 // through the sample library (named folders of ~/.config/Concha/library.txt, http cache).
@@ -11,6 +14,10 @@
 #include "library/SampleLibrary.h"
 #include "pattern/PatternEngine.h"
 #include "sched/SoundConvert.h"
+#include "sc/ScFx.h"
+#include "sc/ScOrbitFx.h"
+#include "sc/ScDefs.h"
+#include "sc/ScHost.h"
 #include "superdough/Engine.h"
 #include "superdough/PhaseVocoder.h"
 
@@ -60,12 +67,24 @@ void writeWav(const char* path, const std::vector<float>& interleaved, int chann
     u32(bytes);
     f.write(reinterpret_cast<const char*>(interleaved.data()), bytes);
 }
+std::string jsonEscape(const std::string& s)
+{
+    std::string o;
+    for (char c : s) {
+        if (c == '"' || c == '\\') o += '\\';
+        if (uint8_t(c) < 0x20) continue;
+        o += c;
+    }
+    return o;
+}
 } // namespace
 
 int main(int argc, char** argv)
 {
     double cycles = 4, cps = 0.5;
     int rate = 48000, outputs = 1;
+    std::string tracePath;
+    std::FILE* trace = nullptr;
     std::vector<const char*> files;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -73,6 +92,7 @@ int main(int argc, char** argv)
         else if (a == "--cps" && i + 1 < argc) cps = std::atof(argv[++i]);
         else if (a == "--rate" && i + 1 < argc) rate = std::atoi(argv[++i]);
         else if (a == "--stereo-outputs" && i + 1 < argc) outputs = std::max(1, std::atoi(argv[++i]));
+        else if (a == "--trace-sc" && i + 1 < argc) tracePath = argv[++i];
         else files.push_back(argv[i]);
     }
     if (files.size() != 2) {
@@ -87,6 +107,13 @@ int main(int argc, char** argv)
     engine.setSampleRate(rate);
     if (!engine.ok()) {
         std::fprintf(stderr, "engine: %s\n", engine.initError().c_str());
+        return 1;
+    }
+    for (const auto& m : sc::loadUserSynthDefFolders(library.synthDefFolders())) // the user's SynthDefs
+        std::fprintf(stderr, "[info] %s\n", m.c_str());
+    registerSuperDirtSynths(engine);
+    if (!tracePath.empty() && !(trace = std::fopen(tracePath.c_str(), "w"))) {
+        std::fprintf(stderr, "cannot write %s\n", tracePath.c_str());
         return 1;
     }
     const auto r = engine.evaluate(readAll(files[0]));
@@ -122,9 +149,36 @@ int main(int argc, char** argv)
         if (e.kind != "sound") continue;
         Ev ev{int64_t(std::floor(e.begin / cps * rate + 1e-6)), {}, e.duration / cps, e.begin};
         if (!conv.convert(e, ev.p, log)) continue;
+        if (trace && ev.p.type == sd::SoundType::ScSynth) {
+            std::string j = "{\"hap\":{";
+            bool first = true;
+            for (const auto& [k, v] : e.params) {
+                if (k.rfind("__", 0) == 0) continue;
+                j += (first ? "\"" : ",\"") + jsonEscape(k) + "\":";
+                first = false;
+                if (v.type == ParamValue::Type::Number) {
+                    char b[40];
+                    std::snprintf(b, sizeof b, "%.9g", v.number);
+                    j += b;
+                } else j += "\"" + jsonEscape(v.string) + "\"";
+            }
+            const auto env = sd::Engine::scEnvelope(ev.p, ev.duration);
+            char b[480];
+            std::snprintf(b, sizeof b,
+                          "},\"cycle\":%.12g,\"duration\":%.12g,\"cps\":%.12g,\"sample\":%lld,\"envelope\":{\"holdtime\":%.9g,"
+                          "\"totalDuration\":%.9g,\"attack\":%.9g,\"decay\":%.9g,\"hold\":%.9g,\"release\":%.9g,\"curve\":%.9g,"
+                          "\"amp\":%.9g}}\n",
+                          e.begin, e.duration, cps, (long long)ev.sample, env.sustain, env.total, env.attack, env.decay, env.level,
+                          env.release, env.curve, env.amp);
+            std::fputs((j + b).c_str(), trace);
+        }
         if (!std::isnan(ev.p.stretch)) { // started earlier (vocoder latency); superdough skips it if that is in the past
             ev.sample -= int64_t(std::llround(sd::kStretchAdvanceSeconds(rate) * rate));
             if (ev.sample < 0) continue;
+        }
+        if (ev.p.numFxModules > 0) { // StrudelDirt's effects give the voice back kLatency samples later
+            ev.sample -= sd::FxServer::kLatency;
+            if (ev.sample < 0) ev.sample = 0;
         }
         sounds.push_back(ev);
     }
@@ -142,6 +196,35 @@ int main(int argc, char** argv)
     sd::Engine sd;
     sd.prepare(rate, true); // reverb impulse responses built inline: the render does not wait for them
     sd.setSampleStore(&library.store());
+    sc::ScHost scHost(rate); // StrudelDirt's instruments
+    if (scHost.ok()) sd.setSynthServer(&scHost);
+    else std::fprintf(stderr, "[warning] scsynth did not start: StrudelDirt's instruments are silent\n");
+    if (trace)
+        scHost.trace = [trace](int64_t onset, const sc::ScDef& d, const sd::SynthArg* args, int n) {
+            std::string j = "{\"synth\":\"" + jsonEscape(d.name) + "\",\"sample\":" + std::to_string(onset) + ",\"args\":{";
+            for (int i = 0; i < n; ++i) {
+                char b[64];
+                std::snprintf(b, sizeof b, "%.9g", double(args[i].value));
+                const std::string name = args[i].control < d.controls.size() ? d.controls[args[i].control] : std::to_string(args[i].control);
+                j += (i ? ",\"" : "\"") + jsonEscape(name) + "\":" + b;
+            }
+            std::fputs((j + "}}\n").c_str(), trace);
+        };
+    sc::ScFx scFx(rate); // StrudelDirt's effects
+    if (scFx.ok()) sd.setFxServer(&scFx);
+    if (trace)
+        scFx.trace = [trace](int64_t at, const sc::ScDef& d, const sd::SynthArg* args, int n, int sustainArg, double sustain) {
+            std::string j = "{\"module\":\"" + jsonEscape(d.name) + "\",\"sample\":" + std::to_string(at) + ",\"args\":{";
+            for (int i = 0; i < n; ++i) {
+                char b[64];
+                std::snprintf(b, sizeof b, "%.9g", i == sustainArg ? sustain : double(args[i].value));
+                const std::string name = args[i].control < d.controls.size() ? d.controls[args[i].control] : std::to_string(args[i].control);
+                j += (i ? ",\"" : "\"") + jsonEscape(name) + "\":" + b;
+            }
+            std::fputs((j + "}}\n").c_str(), trace);
+        };
+    sc::ScOrbitFx scOrbitFx(rate); // StrudelDirt's orbit effects
+    if (scOrbitFx.ok()) sd.setOrbitFxServer(&scOrbitFx);
     const int64_t total = int64_t(cycles / cps * rate) + rate * 2; // 2 s of tail
     const int block = 128;
     std::vector<float> out(size_t(total) * size_t(outputs) * 2, 0.f);
@@ -174,5 +257,6 @@ int main(int argc, char** argv)
                  sounds.size(), total / double(rate), ms, (total / double(rate)) / (ms / 1000.0), queryMs, peak,
                  (unsigned long long)sd.missingSamples());
     for (const auto& w : sd.takeWarnings()) std::fprintf(stderr, "[warning] %s\n", w.c_str());
+    if (trace) std::fclose(trace);
     return 0;
 }

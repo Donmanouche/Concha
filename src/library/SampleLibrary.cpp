@@ -168,6 +168,7 @@ void SampleLibrary::setDirectories(std::string configDir, std::string cacheDir)
         configDir_ = std::move(configDir);
         cacheDir_ = std::move(cacheDir);
         folders_.clear();
+        synthDefFolders_.clear();
         mapCache_.clear();
     }
     load();
@@ -186,8 +187,30 @@ void SampleLibrary::load()
         if (b == std::string::npos) continue;
         folders.push_back({line.substr(a + 1, b - a - 1), line.substr(b + 1), line.substr(0, a) == "1"});
     }
+    std::vector<std::string> defFolders;
+    std::ifstream d(configDir_ + "/synthdefs.txt");
+    while (std::getline(d, line))
+        if (!line.empty() && line[0] != '#') defFolders.push_back(line);
     std::lock_guard<std::mutex> lock(mutex_);
     folders_ = std::move(folders);
+    synthDefFolders_ = std::move(defFolders);
+}
+
+std::vector<std::string> SampleLibrary::synthDefFolders() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return synthDefFolders_;
+}
+
+void SampleLibrary::setSynthDefFolders(std::vector<std::string> paths)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    synthDefFolders_ = std::move(paths);
+    std::error_code ec;
+    fs::create_directories(configDir_, ec);
+    std::ofstream f(configDir_ + "/synthdefs.txt");
+    f << "# Concha SynthDef folders (.scsyndef files): one path per line\n";
+    for (const auto& p : synthDefFolders_) f << p << '\n';
 }
 
 void SampleLibrary::save() const

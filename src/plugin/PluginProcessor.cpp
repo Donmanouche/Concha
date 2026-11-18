@@ -52,6 +52,10 @@ PatternWorker::Options ConchaProcessor::workerOptions(lib::LibraryHost& host)
     PatternWorker::Options o;
     o.engine.host = &host;
     o.library = &host.library;
+    o.onNewSynthDefs = [this] { // the user's new SynthDefs, to this instance's World
+        std::lock_guard<std::mutex> lock(scHostMutex_);
+        if (scHost_) scHost_->loadNewDefs();
+    };
     return o;
 }
 
@@ -85,6 +89,19 @@ void ConchaProcessor::prepareToPlay(double sampleRate, int)
     scheduler_.prepare(sampleRate);
     superdough_.prepare(sampleRate);
     superdough_.setSampleStore(&lib::SampleLibrary::instance().store());
+    // StrudelDirt's instruments: a scsynth World for this instance, at the host's rate
+    superdough_.setSynthServer(nullptr);
+    superdough_.setFxServer(nullptr);
+    superdough_.setOrbitFxServer(nullptr);
+    {
+        std::lock_guard<std::mutex> lock(scHostMutex_);
+        scHost_ = std::make_unique<sc::ScHost>(sampleRate);
+    }
+    if (scHost_->ok()) superdough_.setSynthServer(scHost_.get());
+    scFx_ = std::make_unique<sc::ScFx>(sampleRate); // StrudelDirt's effect modules
+    if (scFx_->ok()) superdough_.setFxServer(scFx_.get());
+    scOrbitFx_ = std::make_unique<sc::ScOrbitFx>(sampleRate); // StrudelDirt's orbit effects
+    if (scOrbitFx_->ok()) superdough_.setOrbitFxServer(scOrbitFx_.get());
     freeRunPpq_ = 0.0;
 }
 

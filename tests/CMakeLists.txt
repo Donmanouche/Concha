@@ -11,6 +11,10 @@ add_executable(concha_superdough_tests superdough_tests.cpp)
 target_link_libraries(concha_superdough_tests PRIVATE concha_library)
 add_test(NAME superdough COMMAND concha_superdough_tests)
 
+add_executable(concha_sc_tests sc_tests.cpp)
+target_link_libraries(concha_sc_tests PRIVATE concha_schost)
+add_test(NAME sc COMMAND concha_sc_tests)
+
 # The editor's pieces: they need JUCE (and an X display for the GUI initialiser).
 add_executable(concha_ui_tests ui_tests.cpp)
 target_link_libraries(concha_ui_tests PRIVATE Concha)

@@ -27,6 +27,7 @@ add_subdirectory(${CONCHA_JUCE_DIR} ${PROJECT_BINARY_DIR}/juce EXCLUDE_FROM_ALL)
 add_subdirectory(${CONCHA_CLAP_JUCE_DIR} ${PROJECT_BINARY_DIR}/clap-juce-extensions EXCLUDE_FROM_ALL)
 
 include(cmake/StrudelBundle.cmake)
+include(cmake/ScSynth.cmake)
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -50,13 +51,13 @@ set_source_files_properties(src/library/Decoder.cpp PROPERTIES COMPILE_OPTIONS "
 # Scheduler: pattern thread (QuickJS) -> audio thread. JUCE-free.
 add_library(concha_sched STATIC src/sched/PatternWorker.cpp src/sched/AudioScheduler.cpp src/sched/SoundConvert.cpp)
 target_include_directories(concha_sched PUBLIC src)
-target_link_libraries(concha_sched PUBLIC concha_pattern concha_library Threads::Threads)
+target_link_libraries(concha_sched PUBLIC concha_pattern concha_library concha_scdefs Threads::Threads)
 
 add_executable(concha_query tools/concha_query/concha_query.cpp)
 target_link_libraries(concha_query PRIVATE concha_pattern concha_library)
 
 add_executable(concha_render tools/concha_render/concha_render.cpp)
-target_link_libraries(concha_render PRIVATE concha_sched)
+target_link_libraries(concha_render PRIVATE concha_sched concha_schost)
 
 juce_add_plugin(Concha
     COMPANY_NAME "Zencha"
@@ -122,6 +123,7 @@ target_link_libraries(Concha
         juce::juce_audio_formats
         juce::juce_opengl
         concha_sched
+        concha_schost
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

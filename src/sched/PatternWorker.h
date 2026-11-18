@@ -15,6 +15,7 @@
 #include "sched/SoundConvert.h"
 #include "sched/SpscRing.h"
 
+#include <functional>
 #include <atomic>
 #include <condition_variable>
 #include <memory>
@@ -37,6 +38,9 @@ public:
         PatternEngine::Options engine;           // engine.host: natives for samples()
         lib::SampleLibrary* library = nullptr;   // sample ids for the sampler
         std::chrono::milliseconds sampleWarmup{250}; // wait for new samples before new code plays
+        // After the user's SynthDef folders gave new SynthDefs (read before each evaluation), on
+        // the evaluation thread: sends them to the scsynth World (ScHost::loadNewDefs).
+        std::function<void()> onNewSynthDefs;
     };
 
     struct Status {
@@ -106,6 +110,7 @@ private:
     Options options_;
 
     std::unique_ptr<PatternEngine> engines_[2];
+    int registeredDefs_[2] = {0, 0}; // scDefCount() each engine has registered
     int active_ = 0; // guarded by mutex_
 
     mutable std::mutex mutex_;

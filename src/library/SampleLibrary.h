@@ -55,6 +55,11 @@ public:
     std::string autoloadJson() const;
     static std::string scanFolder(const std::string& path, const std::string& name, std::string* error);
 
+    // ---- SynthDef folders (.scsyndef files, played like StrudelDirt's instruments; none by
+    // default), saved in ~/.config/Concha/synthdefs.txt ----
+    std::vector<std::string> synthDefFolders() const;
+    void setSynthDefFolders(std::vector<std::string> paths); // saves the settings
+
     // ---- loading ----
     // Text of a URL or a path (blocking; http(s) cached on disk).
     bool fetchText(const std::string& url, std::string& text, std::string& error);
@@ -84,6 +89,7 @@ private:
     sd::SampleStore store_;
     mutable std::mutex mutex_;
     std::vector<LibraryFolder> folders_;
+    std::vector<std::string> synthDefFolders_;
     std::map<std::string, std::string> mapCache_; // folder name -> scanned map
     std::atomic<uint64_t> version_{1};
     std::string configDir_, cacheDir_;

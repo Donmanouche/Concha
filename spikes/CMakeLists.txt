@@ -5,7 +5,11 @@ add_executable(spike_qjs_tunes qjs_tunes.cpp)
 target_link_libraries(spike_qjs_tunes PRIVATE qjs)
 
 # Embedded scsynth: two Worlds in one process.
-include(${PROJECT_SOURCE_DIR}/cmake/ScSynth.cmake)
+# (concha_scsynth: cmake/ScSynth.cmake, included by the main CMakeLists.txt)
 add_executable(spike_sc_two_worlds sc/two_worlds.cpp)
 target_include_directories(spike_sc_two_worlds PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(spike_sc_two_worlds PRIVATE concha_scsynth)
+
+add_executable(spike_sc_check_defs sc/check_defs.cpp)
+target_include_directories(spike_sc_check_defs PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(spike_sc_check_defs PRIVATE concha_scsynth)

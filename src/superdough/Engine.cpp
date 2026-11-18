@@ -456,9 +456,23 @@ double distortion(int algorithm, double x, double k)
 
 // ---- orbit (superdoughoutput.mjs Orbit) ----
 
+namespace {
+// SuperCollider's Env segment shape for a curvature c (EnvGen: linear when |c| < 0.001)
+double envCurve(double y1, double y2, double pos, double c)
+{
+    pos = std::min(1.0, std::max(0.0, pos));
+    if (std::fabs(c) < 0.001) return y1 + (y2 - y1) * pos;
+    return y1 + (y2 - y1) * (1.0 - std::exp(c * pos)) / (1.0 - std::exp(c));
+}
+} // namespace
+
 struct Engine::Orbit {
     bool used = false;
     int number = 0;
+    // StrudelDirt's orbit effects (OrbitFxServer): playing, leslie's share, the controls last sent
+    bool leslieOn = false, shimmerOn = false;
+    float leslieAmount = 0.5f;
+    float leslieSent[3] = {kNaNf, kNaNf, kNaNf}, shimmerSent[4] = {kNaNf, kNaNf, kNaNf, kNaNf};
     int bus = 0;
     std::array<std::vector<float>, 2> dry, delaySend, roomSend;
 
@@ -658,6 +672,13 @@ struct Engine::Voice : Engine::FxStage {
     double sampleDetuneMod = 0; // AudioBufferSourceNode.detune is k-rate: the quantum's first value
     std::array<int8_t, FxChain::kMaxStages> stages{}; // FX chain stages from the engine's pool
     int numStages = 0;
+    int fxSlot = -1;           // StrudelDirt effects: the effects server's chain
+    int scSlot = -1;           // ScSynth: the synth server's slot
+    int64_t scReadFrom = 0;    // its output's first sample (absolute)
+    double scTotal = 0;        // dirt_gate: totalDuration
+    // strudel_envelope: Env.adsr(attack.max(0.001), decay, hold, release, 1, curve), gate held for
+    // sustain, times amp
+    double scAttack = 0.001, scDecay = 0, scLevel = 1, scRelease = 0.01, scCurve = -2, scHoldTime = 0, scAmp = 1;
     int busOut = -1, busIn = -1; // .bus(n) send / s("bus") source: bus slots
     double busGain = 1;
     bool readsBus = false;
@@ -689,13 +710,46 @@ struct Engine::Voice : Engine::FxStage {
     }
 };
 
+Engine::ScEnvelope Engine::scEnvelope(const SoundParams& p, double duration)
+{
+    ScEnvelope e;
+    e.sustain = isSet(p.scSustainValue) ? double(p.scSustainValue) : duration * p.scClip; // delta * (clip ? 1)
+    e.total = e.sustain + p.scReleaseValue;
+    e.attack = std::max(0.001, isSet(p.scAttack) ? double(p.scAttack) : 0.0); // attack.max(0.001)
+    e.decay = isSet(p.scDecay) ? std::max(0.0, double(p.scDecay)) : 0.0;
+    e.level = isSet(p.scHold) ? double(p.scHold) : (isSet(p.scDecay) ? 0.0 : 1.0); // ~hold ? ~decay.isNil
+    e.release = std::max(0.0, double(p.scReleaseValue));
+    e.curve = p.scCurve;
+    e.amp = p.scAmp;
+    return e;
+}
+
+namespace {
+// strudel_envelope's EnvGen at t seconds from the synth's start: attack 0 -> 1, decay -> level, held
+// while the gate (Trig.ar(1, sustain)) is open, then the release from wherever it is to 0
+double dirtEnvelope(double t, const Engine::Voice& v)
+{
+    auto adsr = [&](double x) {
+        if (x < v.scAttack) return envCurve(0, 1, x / v.scAttack, v.scCurve);
+        x -= v.scAttack;
+        if (x < v.scDecay) return envCurve(1, v.scLevel, x / v.scDecay, v.scCurve);
+        return v.scLevel;
+    };
+    if (t < v.scHoldTime) return adsr(t);
+    const double from = adsr(v.scHoldTime);
+    if (v.scRelease <= 0) return 0;
+    return envCurve(from, 0, (t - v.scHoldTime) / v.scRelease, v.scCurve);
+}
+} // namespace
+
 Engine::Engine()
     : voices_(std::make_unique<std::array<Voice, kMaxVoices>>()), orbits_(std::make_unique<std::array<Orbit, kMaxOrbits>>()),
       kabel_(std::make_unique<std::array<kabel::KabelState, kMaxKabel>>()),
       audioBuses_(std::make_unique<std::array<AudioBus, kMaxBuses>>()),
       stages_(std::make_unique<std::array<FxStage, kMaxStagePool>>()),
       stageReverbs_(std::make_unique<std::array<StageReverb, kMaxStageReverbs>>()),
-      vocoders_(std::make_unique<std::array<PhaseVocoder, kMaxVocoders>>())
+      vocoders_(std::make_unique<std::array<PhaseVocoder, kMaxVocoders>>()),
+      fxDrains_(std::make_unique<std::array<FxDrain, kMaxFxChains>>())
 {
     zeroMods_.fill(0.0);
 }
@@ -712,10 +766,11 @@ std::vector<std::string> Engine::takeWarnings()
         "more than 16 FX stage delays at once: the newest stages have none",
         "more than 32 different buses: the others are ignored",
         "K(): too many delay lines at once: the newest delay() nodes are silent",
+        "more than 32 StrudelDirt instruments at once: the newest are not played",
     };
     std::vector<std::string> out;
     const auto now = std::chrono::steady_clock::now();
-    for (int b = 0; b < 7; ++b) {
+    for (int b = 0; b < 8; ++b) {
         if (!(bits & (1u << b))) continue;
         if (shortageReported_[size_t(b)] != std::chrono::steady_clock::time_point{} &&
             now - shortageReported_[size_t(b)] < std::chrono::seconds(10))
@@ -740,6 +795,18 @@ int Engine::busSlot(double id)
         }
     shortage(32);
     return -1;
+}
+
+void Engine::releaseSynth(Voice& v)
+{
+    if (v.scSlot >= 0 && synthServer_) synthServer_->stop(v.scSlot);
+    v.scSlot = -1;
+    if (v.fxSlot >= 0) { // its last input was written up to now: the drain stops kLatency later
+        FxDrain& d = (*fxDrains_)[size_t(v.fxSlot)];
+        d.voiceDone = true;
+        d.end = std::max(d.start, v.absStart + v.index); // the next sample it would have written
+        v.fxSlot = -1;
+    }
 }
 
 void Engine::releaseStages(Voice& v)
@@ -862,8 +929,22 @@ void Engine::reset()
     for (auto& v : *voices_) {
         v.active = false;
         releaseStages(v);
+        releaseSynth(v);
     }
     for (auto& b : *audioBuses_) b.used = false;
+    if (orbitFx_) orbitFx_->reset();
+    for (auto& o : *orbits_) {
+        o.leslieOn = o.shimmerOn = false;
+        o.leslieAmount = 0.5f;
+        std::fill(std::begin(o.leslieSent), std::end(o.leslieSent), kNaNf);
+        std::fill(std::begin(o.shimmerSent), std::end(o.shimmerSent), kNaNf);
+    }
+    if (fxDrains_)
+        for (int k = 0; k < int(fxDrains_->size()); ++k)
+            if ((*fxDrains_)[size_t(k)].active) {
+                if (fxServer_) fxServer_->stop(k);
+                (*fxDrains_)[size_t(k)].active = false;
+            }
     // FX stage reverbs draw their noise from orbit 1's seed sequence (one per response), as the
     // reference harness's single generator does
     stageSeed_ = 0x9e3779b9u * 8u;
@@ -1294,6 +1375,7 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
     v.type = p.type;
     v.wave = p.wave;
     v.sourceChannels = 1;
+    releaseSynth(v);
     v.fm = v.vib = v.noiseMix = false;
     v.sample = nullptr;
     v.sampleEnded = false;
@@ -1624,6 +1706,49 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
         v.sourceGain = 1.0;
         vibrato();
         pitchEnvelope(v.detune, holdDuration);
+    } else if (p.type == SoundType::ScSynth) { // a StrudelDirt instrument (DirtEvent.calcTimeSpan, sendSynth)
+        if (!synthServer_) return false;
+        SynthArg args[64];
+        int n = 0;
+        for (int k = 0; k < p.numScArgs; ++k) args[n++] = p.scArgs[k];
+        auto set = [&](int8_t control, double value) {
+            if (control < 0) return;
+            for (int k = 0; k < n; ++k)
+                if (args[k].control == uint8_t(control)) {
+                    args[k].value = float(value);
+                    return;
+                }
+            if (n < 64) args[n++] = SynthArg{uint8_t(control), float(value)};
+        };
+        const ScEnvelope env = scEnvelope(p, duration);
+        const double sustain = env.sustain, total = env.total;
+        const double speed = p.scSpeedValue;
+        set(p.scSustain, sustain);
+        set(p.scDelta, duration);
+        set(p.scCps, cps);
+        set(p.scCycle, cycle);
+        set(p.scTotal, total);
+        set(p.scRelease, p.scReleaseValue);
+        set(p.scSpeed, speed);
+        set(p.scEndSpeed, isSet(p.scAccelerate) ? speed * (1.0 + p.scAccelerate) : speed);
+        int64_t readFrom = 0;
+        const int slot = synthServer_->start(p.scDef, args, n, absSample_ + offset, readFrom);
+        if (slot < 0) {
+            shortage(128);
+            return false;
+        }
+        v.scSlot = slot;
+        v.scReadFrom = readFrom;
+        v.scTotal = total;
+        v.scAttack = env.attack;
+        v.scDecay = env.decay;
+        v.scLevel = env.level;
+        v.scRelease = env.release;
+        v.scCurve = env.curve;
+        v.scHoldTime = sustain;
+        v.scAmp = env.amp;
+        sourceStop = total;
+        v.sourceGain = 1.0;
     } else {
         return false;
     }
@@ -1733,6 +1858,45 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
             }
         }
         v.roomSend = room;
+    }
+    if (orbitFx_) { // GlobalDirtEffect.set: dirt_leslie, dirt_shimmer (changed controls only)
+        Orbit& o = *orbit;
+        const int64_t at = absSample_ + offset;
+        const int index = o.number % 16;
+        if (isSet(p.leslie) || isSet(p.lrate) || isSet(p.lsize)) {
+            const char* names[3];
+            float values[3];
+            int n = 0;
+            const float now[3] = {p.leslie, p.lrate, p.lsize};
+            static const char* const keys[3] = {"leslie", "lrate", "lsize"};
+            for (int k = 0; k < 3; ++k)
+                if (isSet(now[k]) && !(now[k] == o.leslieSent[k])) {
+                    names[n] = keys[k];
+                    values[n++] = now[k];
+                    o.leslieSent[k] = now[k];
+                }
+            if (n > 0 || !o.leslieOn) orbitFx_->set(index, OrbitFxServer::Leslie, names, values, n, at);
+            o.leslieOn = true;
+            if (isSet(p.leslie)) o.leslieAmount = p.leslie; // the synth's default is 0.5
+        }
+        if (isSet(p.shimmer) || o.shimmerOn) {
+            // StrudelDirt: delaytime in cycles (lock = 1), defaults 0.1875 / 0.15; it comes back kLatency late
+            const double delaytime = std::max(0.0, nanFallback(p.delaytime, 0.1875) - OrbitFxServer::kLatency * cps / sr);
+            const float now[4] = {float(delaytime), float(nanFallback(p.delayfeedback, 0.15)),
+                                  isSet(p.shimmer) ? float(p.shimmer) : o.shimmerSent[2], float(cps)};
+            static const char* const keys[4] = {"delaytime", "delayfeedback", "shimmer", "cps"};
+            const char* names[4];
+            float values[4];
+            int n = 0;
+            for (int k = 0; k < 4; ++k)
+                if (isSet(now[k]) && !(now[k] == o.shimmerSent[k])) {
+                    names[n] = keys[k];
+                    values[n++] = now[k];
+                    o.shimmerSent[k] = now[k];
+                }
+            if (n > 0 || !o.shimmerOn) orbitFx_->set(index, OrbitFxServer::Shimmer, names, values, n, at);
+            o.shimmerOn = true;
+        }
     }
     if (isSet(p.djf)) {
         Orbit& o = *orbit;
@@ -1978,6 +2142,25 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
         }
     }
 
+    v.fxSlot = -1;
+    if (p.numFxModules > 0 && fxServer_) { // StrudelDirt's effect modules at the end of the chain
+        const int slot = fxServer_->start(p.fxModules, p.numFxModules, absSample_ + offset, duration);
+        if (slot < 0) {
+            shortage(128);
+        } else {
+            v.fxSlot = slot;
+            FxDrain& d = (*fxDrains_)[size_t(slot)];
+            d = FxDrain{};
+            d.active = true;
+            d.start = absSample_ + offset;
+            d.orbit = v.orbit;
+            d.dry = v.dryOn ? v.dryGain : 1.0;
+            d.delay = v.delaySend;
+            d.room = v.roomSend;
+            d.busOut = v.busOut;
+            d.busGain = v.busGain;
+        }
+    }
     v.endTime = std::max(sourceStop, endWithRelease) + (v.compressorOn ? 0.006 : 0.0); // compressor pre-delay
     v.id = ++voiceCounter_;
     v.active = true;
@@ -2244,6 +2427,12 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
     for (auto& b : *audioBuses_)
         if (b.used)
             for (auto& c : b.buf) std::fill_n(c.begin(), numSamples, 0.f);
+    if (synthServer_) { // the instruments' World, far enough for every voice reading it
+        int64_t need = absSample_ + numSamples;
+        for (const auto& v : *voices_)
+            if (v.active && v.scSlot >= 0) need = std::max(need, v.scReadFrom + v.index + int64_t(numSamples));
+        synthServer_->renderTo(need);
+    }
     auto renderVoice = [&](Voice& v) {
         if (!v.active) return;
         Orbit& o = *v.orbit;
@@ -2254,6 +2443,7 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
             if (t >= v.endTime) {
                 v.active = false;
                 releaseStages(v);
+                releaseSynth(v);
                 break;
             }
             // render quanta on the engine clock (where AudioWorklets' process() calls fall)
@@ -2493,6 +2683,20 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
                     }
                     r = l;
                     ch = bytebeat ? 2 : 1;
+                } else if (v.type == SoundType::ScSynth) {
+                    // dirt_gate: Env([0, 1, 1, 0], [fadeInTime, hold, fadeTime], \sin); DirtEvent sends
+                    // fadeInTime nil (0) and fadeTime 0.001
+                    const double fade = 0.001, total = v.scTotal;
+                    double env = 1;
+                    auto sinShape = [](double x) { return 0.5 - 0.5 * std::cos(kPi * clampd(x, 0, 1)); };
+                    if (t > total - fade) env = sinShape((total - t) / fade);
+                    env *= dirtEnvelope(t, v) * v.scAmp;
+                    if (v.scSlot >= 0) {
+                        const int64_t at = v.scReadFrom + v.index;
+                        l = float(synthServer_->sample(v.scSlot, 0, at) * env);
+                        r = float(synthServer_->sample(v.scSlot, 1, at) * env);
+                    }
+                    ch = 2;
                 } else if (v.sample && !v.sampleEnded && t >= v.sampleStart) {
                     const SampleData& s = *v.sample;
                     double cents = v.detune.valueAt(t) + v.sampleDetuneMod;
@@ -2539,6 +2743,12 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
             if (v.fxRelease) g *= v.fxReleaseGain.valueAt(t);
             l *= float(g);
             r *= float(g);
+            if (v.fxSlot >= 0) { // StrudelDirt's effects: to their World, back to the orbit kLatency later
+                fxServer_->write(v.fxSlot, absSample_ + i, l, r);
+                v.t += dt;
+                ++v.index;
+                continue;
+            }
             if (v.busOut >= 0) { // effectSend(post, bus, busgain)
                 auto& bb = (*audioBuses_)[size_t(v.busOut)].buf;
                 bb[0][size_t(i)] += float(l * v.busGain);
@@ -2591,6 +2801,60 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
         for (int level = 0; level <= maxLevel; ++level)
             for (auto& v : *voices_)
                 if (v.level == level) renderVoice(v);
+    }
+    if (fxServer_) { // StrudelDirt's effects: process, then each chain's output to its orbit kLatency later
+        // a voice that ended this block: its chain was written up to its end (releaseSynth)
+        fxServer_->processTo(absSample_ + numSamples);
+        for (int k = 0; k < int(fxDrains_->size()); ++k) {
+            FxDrain& d = (*fxDrains_)[size_t(k)];
+            if (!d.active) continue;
+            Orbit& o = *d.orbit;
+            for (int i = 0; i < numSamples; ++i) {
+                const int64_t src = absSample_ + i - FxServer::kLatency;
+                if (src < d.start || (d.voiceDone && src >= d.end)) continue;
+                const float l = fxServer_->output(k, 0, src), r = fxServer_->output(k, 1, src);
+                if (d.busOut >= 0) {
+                    auto& bb = (*audioBuses_)[size_t(d.busOut)].buf;
+                    bb[0][size_t(i)] += float(l * d.busGain);
+                    bb[1][size_t(i)] += float(r * d.busGain);
+                }
+                o.dry[0][size_t(i)] += float(l * d.dry);
+                o.dry[1][size_t(i)] += float(r * d.dry);
+                if (d.delay > 0) {
+                    o.delaySend[0][size_t(i)] += float(l * d.delay);
+                    o.delaySend[1][size_t(i)] += float(r * d.delay);
+                }
+                if (d.room > 0) {
+                    o.roomSend[0][size_t(i)] += float(l * d.room);
+                    o.roomSend[1][size_t(i)] += float(r * d.room);
+                    o.lastRoomInput = absSample_ + i;
+                }
+            }
+            if (d.voiceDone && absSample_ + numSamples - FxServer::kLatency >= d.end) {
+                fxServer_->stop(k);
+                d.active = false;
+            }
+        }
+    }
+    if (orbitFx_) { // StrudelDirt's orbit effects on each orbit's dry sum, back kLatency later
+        bool any = false;
+        for (auto& o : *orbits_)
+            if (o.used && (o.leslieOn || o.shimmerOn)) {
+                any = true;
+                for (int i = 0; i < numSamples; ++i)
+                    orbitFx_->write(o.number % 16, absSample_ + i, o.dry[0][size_t(i)], o.dry[1][size_t(i)]);
+            }
+        orbitFx_->processTo(absSample_ + numSamples);
+        if (any)
+            for (auto& o : *orbits_) {
+                if (!o.used || !(o.leslieOn || o.shimmerOn)) continue;
+                const float keep = o.leslieOn ? 1.f - o.leslieAmount : 1.f; // leslie: ReplaceOut(dryBus, in * (1 - leslie))
+                for (int i = 0; i < numSamples; ++i) {
+                    const int64_t src = absSample_ + i - OrbitFxServer::kLatency;
+                    for (int c = 0; c < 2; ++c)
+                        o.dry[size_t(c)][size_t(i)] = o.dry[size_t(c)][size_t(i)] * keep + orbitFx_->output(o.number % 16, c, src);
+                }
+            }
     }
     renderOrbits(buses, numBuses, numSamples);
     absSample_ += numSamples;

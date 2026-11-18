@@ -4,8 +4,12 @@
 #include "plugin/SyncProbe.h"
 #include "sched/AudioScheduler.h"
 #include "sched/PatternWorker.h"
+#include "sc/ScFx.h"
+#include "sc/ScOrbitFx.h"
+#include "sc/ScHost.h"
 #include "superdough/Engine.h"
 
+#include <mutex>
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <array>
@@ -98,10 +102,14 @@ private:
     SeqLock<TransportState> transport_;
     SeqLock<SwapPoint> swap_;
     lib::LibraryHost host_{lib::SampleLibrary::instance()};
-    static PatternWorker::Options workerOptions(lib::LibraryHost& host);
+    PatternWorker::Options workerOptions(lib::LibraryHost& host);
     PatternWorker worker_{toAudio_, transport_, swap_, workerOptions(host_)};
     AudioScheduler scheduler_{toAudio_, transport_, swap_};
     sd::Engine superdough_;
+    std::unique_ptr<sc::ScHost> scHost_; // after superdough_: destroyed first
+    std::mutex scHostMutex_;             // scHost_ replaced (prepareToPlay) / sent new SynthDefs (pattern thread)
+    std::unique_ptr<sc::ScFx> scFx_;
+    std::unique_ptr<sc::ScOrbitFx> scOrbitFx_;
 
     SyncProbe probeGen_;
     double sampleRate_ = 48000.0;

@@ -1,5 +1,6 @@
 #include "sched/PatternWorker.h"
 #include "superdough/PhaseVocoder.h"
+#include "sc/ScDefs.h"
 
 #include "library/SampleLibrary.h"
 
@@ -110,6 +111,8 @@ void PatternWorker::queryLoop()
             return;
         }
         e->takeLog();
+        registerSuperDirtSynths(*e);
+        registeredDefs_[&e - engines_] = sc::scDefCount();
     }
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -191,6 +194,17 @@ void PatternWorker::evalLoop()
             pendingCode_.reset();
             standby = engines_[1 - active_].get();
             status_.evaluating = true;
+        }
+        if (options_.library) { // the user's SynthDefs: new or changed .scsyndef files
+            for (auto& m : sc::loadUserSynthDefFolders(options_.library->synthDefFolders()))
+                log(m.rfind("loaded", 0) == 0 ? "info" : "warning", std::move(m));
+            const int n = sc::scDefCount();
+            int& registered = registeredDefs_[standby == engines_[0].get() ? 0 : 1];
+            if (n != registered) {
+                if (options_.onNewSynthDefs) options_.onNewSynthDefs();
+                registerSuperDirtSynths(*standby);
+                registered = n;
+            }
         }
         const EvalResult r = standby->evaluate(code);
         if (r.ok && options_.library) {
@@ -381,8 +395,11 @@ void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const Tr
             ev.cycle = e.begin;
             converter_.sampleRate = t.sampleRate;
             if (!converter_.convert(e, ev.sound, convertLog_)) continue;
-            if (!std::isnan(ev.sound.stretch)) { // superdough: t - 0.04 (vocoder latency), plus Concha's quantum
-                ev.ppq -= sd::kStretchAdvanceSeconds(t.sampleRate) * t.bpm / 60.0;
+            double advance = 0; // seconds: stretch (superdough's 40 ms + Concha's quantum), StrudelDirt effects
+            if (!std::isnan(ev.sound.stretch)) advance += sd::kStretchAdvanceSeconds(t.sampleRate);
+            if (ev.sound.numFxModules > 0) advance += sd::FxServer::kLatency / t.sampleRate;
+            if (advance > 0) {
+                ev.ppq -= advance * t.bpm / 60.0;
                 if (looping && ev.ppq < t.loopStart) {
                     ev.ppq += loopLen;
                     --ev.lap;

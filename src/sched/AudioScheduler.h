@@ -18,6 +18,7 @@
 #include "sched/SpscRing.h"
 
 #include <array>
+#include <vector>
 #include <atomic>
 #include <bitset>
 #include <cstdint>
@@ -76,7 +77,7 @@ private:
     SwapPoint swapPoint_{};
 
     static constexpr int kPending = 4096;
-    std::array<SchedEvent, kPending> pending_;
+    std::vector<SchedEvent> pending_ = std::vector<SchedEvent>(kPending); // (heap: an event is ~2.4 KB)
     int pendingCount_ = 0;
 
     struct Due {

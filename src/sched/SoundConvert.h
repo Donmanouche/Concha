@@ -16,6 +16,9 @@ namespace lib {
 class SampleLibrary;
 }
 
+// Declares StrudelDirt's instruments (src/sc/ScDefs) to an engine's sound registry.
+void registerSuperDirtSynths(PatternEngine& engine);
+
 struct SoundConverter {
     lib::SampleLibrary* library = nullptr; // sample ids; null: samples are not played
     double sampleRate = 48000.0;           // for custom waves (partials)

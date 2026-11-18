@@ -55,6 +55,20 @@ public:
     // synchronousReverb: build reverb impulse responses inline (offline renders, tests).
     void prepare(double sampleRate, bool synchronousReverb = false);
     void setSampleStore(const SampleStore* store) { store_ = store; }
+    // StrudelDirt's instruments (src/sc/ScHost); none: those sounds are skipped. Set before playing.
+    void setSynthServer(SynthServer* server) { synthServer_ = server; }
+    // StrudelDirt's effect modules (src/sc/ScFx); none: those effects are ignored.
+    void setFxServer(FxServer* server) { fxServer_ = server; }
+    // StrudelDirt's orbit effects (src/sc/ScOrbitFx): leslie, shimmer.
+    void setOrbitFxServer(OrbitFxServer* server) { orbitFx_ = server; }
+
+    // A StrudelDirt instrument's time span and envelope (DirtEvent.calcTimeSpan, strudel_envelope,
+    // dirt_gate) for a hap of `duration` seconds: what the voice applies.
+    struct ScEnvelope {
+        double sustain = 0, total = 0; // the gate's hold time; dirt_gate's totalDuration
+        double attack = 0.001, decay = 0, level = 1, release = 0.01, curve = -2, amp = 1;
+    };
+    static ScEnvelope scEnvelope(const SoundParams& p, double duration);
 
     // Audio thread, before render(): a voice starting `offset` samples into the coming block.
     void trigger(int offset, const SoundParams& p, double durationSeconds, double cps, double cycle);
@@ -85,6 +99,20 @@ private:
     std::unique_ptr<NoiseBuffers> noises_;
     std::vector<float> sbdCurve_; // makeSaturationCurve(2, sampleRate)
     const SampleStore* store_ = nullptr;
+    SynthServer* synthServer_ = nullptr;
+    FxServer* fxServer_ = nullptr;
+    OrbitFxServer* orbitFx_ = nullptr;
+    // a StrudelDirt effects chain's way back to its orbit (index = the server's slot)
+    struct FxDrain {
+        bool active = false, voiceDone = false;
+        int64_t start = 0, end = 0; // its voice's input, absolute samples
+        Orbit* orbit = nullptr;
+        double dry = 1, delay = 0, room = 0, busGain = 1;
+        int busOut = -1;
+    };
+    static constexpr int kMaxFxChains = 32;
+    std::unique_ptr<std::array<FxDrain, kMaxFxChains>> fxDrains_;
+    void releaseSynth(Voice& v);
     std::unique_ptr<std::array<Voice, kMaxVoices>> voices_;
     std::unique_ptr<std::array<Orbit, kMaxOrbits>> orbits_;
     // K() graphs: states lent to the voices that play one
@@ -133,7 +161,8 @@ private:
     std::array<int, 64> cutGroups_{}; // cut group (mod 64) -> voice index + 1
     std::atomic<int> active_{0};
     std::atomic<uint64_t> missingSamples_{0};
-    // ran out of: 1 K() state, 2 FX stage, 4 vocoder, 8 stage reverb, 16 stage delay, 32 bus, 64 K() delay line
+    // ran out of: 1 K() state, 2 FX stage, 4 vocoder, 8 stage reverb, 16 stage delay, 32 bus, 64 K() delay line,
+    // 128 instrument slot
     std::atomic<uint32_t> shortages_{0};
     std::array<std::chrono::steady_clock::time_point, 8> shortageReported_{};
     void shortage(uint32_t bit) { shortages_.fetch_or(bit, std::memory_order_relaxed); }

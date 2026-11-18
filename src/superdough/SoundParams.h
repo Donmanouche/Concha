@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+
+#include "superdough/SynthServer.h"
 #include <string_view>
 
 namespace concha::sd {
@@ -25,7 +27,7 @@ namespace concha::sd {
     X(fmi) X(fmh) X(fmattack) X(fmdecay) X(fmsustain) X(fmrelease)                                                     \
     X(noise) X(density) X(FXrelease) X(octave)                                                                        \
     X(delay) X(delayfeedback) X(delaysync) X(delaytime) X(dry) X(room) X(roomsize) X(roomfade) X(roomlp) X(roomdim)  \
-    X(irspeed) X(irbegin) X(bus) X(busgain)                                                                                             \
+    X(irspeed) X(irbegin) X(bus) X(busgain) X(leslie) X(lrate) X(lsize) X(shimmer)                                                                                             \
     X(djf) X(coarse) X(crush) X(shape) X(shapevol) X(distort) X(distortvol)                                          \
     X(tremolo) X(tremolosync) X(tremolodepth) X(tremoloskew) X(tremolophase)                                         \
     X(phaserrate) X(phaserdepth) X(phasercenter) X(phasersweep)                                                      \
@@ -38,7 +40,7 @@ namespace concha::sd {
     X(warp) X(warpenv) X(warpattack) X(warpdecay) X(warpsustain) X(warprelease) X(warprate) X(warpsync) X(warpdepth)  \
     X(warpdc) X(warpskew) X(wtphaserand) X(transient) X(transsustain) X(stretch)
 
-enum class SoundType : uint8_t { Synth, Noise, Sample, Buffer, Wavetable, Unsupported };
+enum class SoundType : uint8_t { Synth, Noise, Sample, Buffer, Wavetable, ScSynth, Unsupported };
 enum class SynthWave : uint8_t { Triangle, Square, Sawtooth, Sine, One, User, Supersaw, Pulse, Sbd, Bus, Other };
 enum class FilterModel : uint8_t { Db12, Ladder, Db24 };
 
@@ -121,6 +123,21 @@ struct SoundParams {
     float transpose = 0.f;  // samples: semitones from getCommonSampleInfo
     uint32_t sampleId = 0;  // samples: SampleCache id (0 = none)
     uint32_t fxChainId = 0;  // FX: FxChainStore chain, 0 = none
+    // StrudelDirt's effect modules at the end of the voice (sd::FxServer), in its order
+    FxModule fxModules[8];
+    uint8_t numFxModules = 0;
+    // ScSynth: a StrudelDirt instrument (sc::scDefs() index) and its controls from the hap; the ones
+    // that depend on the tempo are set when the voice starts (indices of those controls, -1: none)
+    int16_t scDef = -1;
+    uint8_t numScArgs = 0;
+    SynthArg scArgs[48];
+    int8_t scSustain = -1, scDelta = -1, scCps = -1, scCycle = -1, scTotal = -1, scRelease = -1, scSpeed = -1, scEndSpeed = -1;
+    float scSpeedValue = 1, scAccelerate = std::numeric_limits<float>::quiet_NaN();
+    float scSustainValue = std::numeric_limits<float>::quiet_NaN(), scClip = 1, scReleaseValue = 0.01f;
+    // StrudelDirt's envelope module (strudel_envelope, on every note: release defaults to 0.01):
+    // attack, decay (NaN = nil), hold (sustain level, NaN = decay is nil), curve, amp
+    float scAttack = std::numeric_limits<float>::quiet_NaN(), scDecay = std::numeric_limits<float>::quiet_NaN(),
+          scHold = std::numeric_limits<float>::quiet_NaN(), scCurve = -2, scAmp = 1;
     uint32_t kabelId = 0;    // K(): KabelStore program, 0 = none
     uint32_t irSampleId = 0; // ir: the reverb's impulse response (a sample), 0 = generated
     uint32_t soundHash = 0; // name of the sound, for logs

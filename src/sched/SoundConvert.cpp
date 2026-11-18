@@ -1,4 +1,5 @@
 #include "sched/SoundConvert.h"
+#include "sc/ScDefs.h"
 #include "superdough/FxChain.h"
 #include "superdough/Kabel.h"
 
@@ -27,7 +28,11 @@ const char* const kHandled[] = {"s", "bank", "note", "freq", "duration", "channe
                                 "unit", "analyze", "fft", "color", "markcss", "id", "cps", "label", "activeLabel",
                                 "i", "value", "lock", "vowel", "distorttype", "tremoloshape", "lpshape", "hpshape",
                                 "bpshape", "duckorbit", "duckonset", "duckattack", "duckdepth", "partials", "phases",
-                                "warpmode", "wtshape", "warpshape", "lfo", "env", "bmod", "ir", "FX", "workletSrc", "workletInputs"};
+                                "warpmode", "wtshape", "warpshape", "lfo", "env", "bmod", "ir", "FX",
+                                "psrate", "psdisp", "tilt", "plat", "tremolorate", "waveloss", "squiz", "fshift", "fshiftphase",
+                                "fshiftnote", "triode", "krush", "kcutoff", "octer", "octersub", "octersubsub", "ring", "ringf",
+                                "ringdf", "distort2", "tsdelay", "xsdelay", "freeze", "comb", "smear", "scram", "binshift", "hbrick",
+                                "lbrick", "real", "imag", "enhance", "workletSrc", "workletInputs"};
 
 // A tiny reader for the modulator objects ({"0":{"control":"cutoff","rate":2},...}): flat key/value
 // pairs per inner object, in order. Values are numbers or strings.
@@ -390,6 +395,43 @@ int firstChannel(const ParamValue& v)
 }
 } // namespace
 
+void registerSuperDirtSynths(PatternEngine& engine)
+{
+    std::string list = "concha.registerSuperDirtSynths([";
+    bool first = true;
+    for (int i = 0; i < sc::scDefCount(); ++i)
+        if (const sc::ScDef& d = sc::scDef(i); d.instrument) {
+            list += (first ? "\"" : ",\"") + d.name + "\"";
+            first = false;
+        }
+    std::string json;
+    engine.evalJson(list + "])", json);
+    // their controls Strudel doesn't have become pattern functions (a user's SynthDef's `harm`)
+    std::string controls = "concha.registerSynthControls([";
+    first = true;
+    for (int i = 0; i < sc::scDefCount(); ++i)
+        if (const sc::ScDef& d = sc::scDef(i); d.instrument)
+            for (const auto& c : d.controls) {
+                if (c.empty() || c == "out" || c.find('[') != std::string::npos) continue;
+                controls += (first ? "\"" : ",\"") + c + "\"";
+                first = false;
+            }
+    engine.evalJson(controls + "])", json);
+}
+
+namespace {
+// a control of the SynthDef that plays the event (s("mybeep").harm(2)): the synth takes it
+bool isSynthControl(const PatternEvent& e, const std::string& key)
+{
+    const ParamValue* type = e.find("__type");
+    const ParamValue* s = e.find("__s");
+    if (!type || type->string != "superdirt" || !s) return false;
+    if (key == "amp" || key == "hold" || key == "curve") return true; // StrudelDirt's envelope module
+    const int def = sc::scDefIndex(s->string);
+    return def >= 0 && sc::scControlIndex(sc::scDef(def), key) >= 0;
+}
+} // namespace
+
 bool SoundConverter::convertControls(const PatternEvent& e, sd::SoundParams& out, const Report& report)
 {
     for (const auto& [key, v] : e.params) {
@@ -461,7 +503,7 @@ bool SoundConverter::convertControls(const PatternEvent& e, sd::SoundParams& out
             int8_t& count = key == "duckorbit" ? out.numDuck : key == "duckonset" ? out.numDuckOnset : key == "duckattack" ? out.numDuckAttack : out.numDuckDepth;
             count = int8_t(std::min<size_t>(4, list.size()));
             for (int k = 0; k < count; ++k) dst[k] = float(list[size_t(k)]);
-        } else if (!known) {
+        } else if (!known && !isSynthControl(e, key)) {
             report("param:" + key, "[superdough C++] control \"" + key + "\" is not implemented yet: ignored");
         }
     }
@@ -574,6 +616,76 @@ bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::v
         }
     }
 
+    // StrudelDirt's effect modules superdough lacks (default-effects-extra.scd, core-modules.scd), in
+    // StrudelDirt's module order: they run at the end of the voice, in the effects' scsynth World
+    {
+        struct Module {
+            const char* def;
+            std::initializer_list<const char*> tests;
+            std::initializer_list<std::pair<const char*, const char*>> args; // control <- event key
+        };
+        static const Module modules[] = {
+            {"dirt_pitch_shift2", {"psrate"}, {{"psrate", "psrate"}, {"psdisp", "psdisp"}, {"sustain", "#sustain"}}},
+            {"dirt_grain_envelope2", {"tilt"}, {{"sustain", "#sustain"}, {"tilt", "tilt"}, {"plat", "plat"}, {"curve", "curve"}}},
+            {"dirt_tremolo2", {"tremolorate"}, {{"tremolorate", "tremolorate"}, {"tremolodepth", "tremolodepth"}}},
+            {"waveloss2", {"waveloss"}, {{"drop", "waveloss"}}},
+            {"squiz2", {"squiz"}, {{"pitchratio", "squiz"}}},
+            {"dirt_fshift2", {"fshift"}, {{"fshift", "fshift"}, {"fshiftphase", "fshiftphase"}, {"fshiftnote", "fshiftnote"}, {"freq", "#freq"}}},
+            {"dirt_triode2", {"triode"}, {{"triode", "triode"}}},
+            {"dirt_krush2", {"krush"}, {{"krush", "krush"}, {"kcutoff", "kcutoff"}}},
+            {"dirt_octer2", {"octer", "octersub", "octersubsub"}, {{"octer", "octer"}, {"octersub", "octersub"}, {"octersubsub", "octersubsub"}}},
+            {"dirt_ring2", {"ring"}, {{"ring", "ring"}, {"ringf", "ringf"}, {"ringdf", "ringdf"}}},
+            {"dirt_distort2", {"distort2"}, {{"distort", "distort2"}}},
+            {"spectral-delay2", {"tsdelay", "xsdelay"}, {{"xsdelay", "xsdelay"}, {"tsdelay", "tsdelay"}}},
+            {"spectral-freeze2", {"freeze"}, {{"freeze", "freeze"}}},
+            {"spectral-comb2", {"comb"}, {{"comb", "comb"}}},
+            {"spectral-smear2", {"smear"}, {{"smear", "smear"}}},
+            {"spectral-scram2", {"scram"}, {{"scram", "scram"}}},
+            {"spectral-binshift2", {"binshift"}, {{"binshift", "binshift"}}},
+            {"spectral-hbrick2", {"hbrick"}, {{"hbrick", "hbrick"}}},
+            {"spectral-lbrick2", {"lbrick"}, {{"lbrick", "lbrick"}}},
+            {"spectral-conformer2", {"real", "imag"}, {{"real", "real"}, {"imag", "imag"}}},
+            {"spectral-enhance2", {"enhance"}, {{"enhance", "enhance"}}},
+        };
+        auto number = [&](const char* k, double& v) {
+            const ParamValue* p = e.find(k);
+            if (!p) return false;
+            if (p->type == ParamValue::Type::Number) v = p->number;
+            else v = std::strtod(p->string.c_str(), nullptr);
+            return true;
+        };
+        // DirtEvent's ~freq: midinote.midicps, midinote = (note ? n ? 36) + octave * 12
+        double freq = 0, x = 0;
+        if (const ParamValue* f = e.find("__freq")) freq = f->number;
+        else if (number("freq", x)) freq = x;
+        else {
+            double note = 36, octave = 0;
+            if (!number("note", note) && number("n", x)) note = x;
+            number("octave", octave);
+            freq = 440.0 * std::pow(2.0, (note + octave * 12 - 69) / 12.0);
+        }
+        for (const auto& m : modules) {
+            bool on = false;
+            for (const char* t : m.tests) on = on || e.find(t) != nullptr;
+            if (!on) continue;
+            const int def = sc::scDefIndex(m.def, true);
+            if (def < 0 || out.numFxModules >= std::size(out.fxModules)) continue;
+            const sc::ScDef& d = sc::scDefs()[size_t(def)];
+            sd::FxModule& fm = out.fxModules[out.numFxModules++];
+            fm = sd::FxModule{};
+            fm.def = int16_t(def);
+            for (const auto& [control, key] : m.args) {
+                const int c = sc::scControlIndex(d, control);
+                if (c < 0 || fm.numArgs >= std::size(fm.args)) continue;
+                double v = 0;
+                if (std::string_view(key) == "#sustain") fm.sustainArg = int8_t(fm.numArgs);
+                else if (std::string_view(key) == "#freq") v = freq;
+                else if (!number(key, v)) v = 0; // sendSynth's [key: ~key] with ~key nil: OSC sends 0
+                fm.args[fm.numArgs++] = sd::SynthArg{uint8_t(c), float(v)};
+            }
+        }
+    }
+
     // the value's own modulators, after the stages' (FX.forEach in superdough: stages, then main)
     parseModulators(e, -1, out, modIds, report);
 
@@ -652,6 +764,64 @@ bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::v
         if (!url || !library) return false;
         out.sampleId = library->requestSample(url->string);
         return out.sampleId != 0;
+    }
+    if (t == "superdirt") { // a StrudelDirt instrument (DirtEvent: the event's keys that are controls)
+        out.type = sd::SoundType::ScSynth;
+        const int def = sc::scDefIndex(s);
+        if (def < 0) return false;
+        const sc::ScDef& d = sc::scDef(def);
+        out.scDef = int16_t(def);
+        auto control = [&](const char* n) { return int8_t(sc::scControlIndex(d, n)); };
+        auto add = [&](int index, float value) {
+            if (index < 0 || out.numScArgs >= std::size(out.scArgs)) return;
+            for (int k = 0; k < out.numScArgs; ++k)
+                if (out.scArgs[k].control == index) {
+                    out.scArgs[k].value = value;
+                    return;
+                }
+            out.scArgs[out.numScArgs++] = sd::SynthArg{uint8_t(index), value};
+        };
+        // the hap's numbers whose names are controls (velocity, detune, voice, lfo, rate...)
+        static const char* const engine[] = {"out", "pan", "gain", "postgain", "orbit", "sustain", "delta", "cps", "cycle",
+                                              "totalDuration", "speed", "endSpeed"};
+        for (const auto& [key, v] : e.params) {
+            if (key.empty() || key[0] == '_' || v.type != ParamValue::Type::Number) continue;
+            bool skip = false;
+            for (const char* x : engine)
+                if (key == x) skip = true;
+            if (!skip) add(sc::scControlIndex(d, key), float(v.number));
+        }
+        const ParamValue* f = e.find("__freq");
+        const ParamValue* mn = e.find("__midinote");
+        if (f) add(control("freq"), float(f->number));
+        if (mn) add(control("midinote"), float(mn->number));
+        if (const ParamValue* n = e.find("n"); n && n->type == ParamValue::Type::Number && !e.find("z1"))
+            add(control("z1"), float(n->number)); // ~z1 = ~z1 ? ~n
+        add(control("pan"), 0.f); // the voice pans (superdough), the synth stays centred
+        // set when the voice starts (they depend on the tempo)
+        out.scSustain = control("sustain");
+        out.scDelta = control("delta");
+        out.scCps = control("cps");
+        out.scCycle = control("cycle");
+        out.scTotal = control("totalDuration");
+        out.scRelease = control("release");
+        out.scSpeed = control("speed");
+        out.scEndSpeed = control("endSpeed");
+        auto num = [&](const char* k, float def) {
+            const ParamValue* p = e.find(k);
+            return p && p->type == ParamValue::Type::Number ? float(p->number) : def;
+        };
+        out.scSpeedValue = num("speed", 1.f);
+        out.scAccelerate = num("accelerate", std::numeric_limits<float>::quiet_NaN());
+        out.scSustainValue = num("sustain", std::numeric_limits<float>::quiet_NaN());
+        out.scClip = num("clip", num("legato", 1.f));
+        out.scReleaseValue = num("release", 0.01f);
+        out.scAttack = num("attack", std::numeric_limits<float>::quiet_NaN());
+        out.scDecay = num("decay", std::numeric_limits<float>::quiet_NaN());
+        out.scHold = num("hold", std::numeric_limits<float>::quiet_NaN());
+        out.scCurve = num("curve", -2.f);
+        out.scAmp = num("amp", 1.f);
+        return true;
     }
     if (t == "zzfx" || t == "bytebeat") { // rendered in JS (js/src/sounds.mjs), played as a buffer
         out.type = sd::SoundType::Buffer;

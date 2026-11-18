@@ -33,6 +33,15 @@ __attribute__((visibility("default"))) void concha_sc_process(ConchaScWorld* wor
                                                               int numInputs, float* const* outputs, int numOutputs,
                                                               int numSamples, int64_t oscTime);
 
+// Not while the audio thread processes the World: waits (running silent blocks) until every
+// command sent before is done, e.g. the /d_recv of SynthDefs. 1 when done, 0 on timeout.
+__attribute__((visibility("default"))) int concha_sc_sync(ConchaScWorld* world, int timeoutMs);
+
+// Audio thread only (the one calling concha_sc_process): an OSC message (not a bundle) run at
+// oscTime, at its sample within the block, without allocating. Returns 0 when the queue is full.
+__attribute__((visibility("default"))) int concha_sc_queue_rt(ConchaScWorld* world, const char* message, int size,
+                                                               int64_t oscTime);
+
 __attribute__((visibility("default"))) int concha_sc_block_size(ConchaScWorld* world);
 __attribute__((visibility("default"))) int64_t concha_sc_seconds_to_osc(double seconds);
 

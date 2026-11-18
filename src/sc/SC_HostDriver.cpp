@@ -16,15 +16,55 @@
 #include "sc/ConchaSc.h"
 
 #include <cmath>
+#include <thread>
+#include <chrono>
+#include <atomic>
 #include <cstring>
+#include <vector>
 
 int32 server_timeseed() { return timeSeed(); }
 int64 oscTimeNow() { return OSCTime(getTime()); }
 void initializeScheduler() {}
 
+int PerformOSCMessage(World* inWorld, int inSize, char* inData, ReplyAddress* inReply);
+namespace {
+void ignoreReply(ReplyAddress*, char*, int) {}
+}
+
 class SC_HostDriver final : public SC_AudioDriver {
 public:
-    explicit SC_HostDriver(World* world) : SC_AudioDriver(world) {}
+    explicit SC_HostDriver(World* world) : SC_AudioDriver(world)
+    {
+        mRtReply.mReplyFunc = &ignoreReply;
+        mRtReply.mReplyData = nullptr;
+        mRtReply.mSocket = 0;
+    }
+
+    // Messages from the audio thread (the one calling Process), run at their sample: a fixed queue,
+    // no allocation (World_SendPacket mallocs).
+    static constexpr int kRtQueue = 512, kRtMsgBytes = 2048;
+    struct RtMsg {
+        int64 time = 0;
+        uint64_t seq = 0; // same time: in the order queued
+        int size = 0;
+        bool used = false;
+        char data[kRtMsgBytes];
+    };
+    bool QueueRt(const char* data, int size, int64 time)
+    {
+        if (size <= 0 || size > kRtMsgBytes) return false;
+        for (auto& m : mRt) {
+            if (m.used) continue;
+            std::memcpy(m.data, data, (size_t)size);
+            m.size = size;
+            m.time = time;
+            m.seq = mRtSeq++;
+            m.used = true;
+            ++mRtPending;
+            return true;
+        }
+        return false;
+    }
 
     // numSamples must be a multiple of the World's block size (64).
     void Process(const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples,
@@ -70,6 +110,20 @@ public:
                     SC_ScheduledEvent event = mScheduler.Remove();
                     event.Perform();
                 }
+                while (mRtPending > 0) { // the audio thread's messages due in this block, in time order
+                    RtMsg* next = nullptr;
+                    for (auto& m : mRt)
+                        if (m.used && m.time < nextTime &&
+                            (!next || m.time < next->time || (m.time == next->time && m.seq < next->seq)))
+                            next = &m;
+                    if (!next) break;
+                    const float diff = (float)(next->time - oscTime) * (float)oscToSamples + 0.5f;
+                    world->mSampleOffset = sc_clip((int)std::floor(diff), 0, world->mBufLength - 1);
+                    world->mSubsampleOffset = 0.f;
+                    PerformOSCMessage(world, next->size, next->data, &mRtReply);
+                    next->used = false;
+                    --mRtPending;
+                }
                 world->mSampleOffset = 0;
                 world->mSubsampleOffset = 0.f;
 
@@ -93,6 +147,11 @@ public:
     }
 
 protected:
+    std::vector<RtMsg> mRt = std::vector<RtMsg>(kRtQueue);
+    int mRtPending = 0;
+    uint64_t mRtSeq = 0;
+    ReplyAddress mRtReply;
+
     bool DriverSetup(int* outNumSamples, double* outSampleRate) override
     {
         if (!mPreferredSampleRate || !mPreferredHardwareBufferFrameSize) return false;
@@ -106,12 +165,41 @@ protected:
 
 SC_AudioDriver* SC_NewAudioDriver(World* inWorld) { return new SC_HostDriver(inWorld); }
 
-// ---- Concha C API (sc/ConchaSc.h) ---------------------------------------------------------
+// UGen plug-ins compiled in (STATIC_PLUGINS) that scsynth's initialize_library() does not load
+// itself: the rest of SuperCollider's own, and the sc3-plugins families (cmake/ScSynth.cmake).
+extern InterfaceTable gInterfaceTable;
+void Chaos_Load(InterfaceTable*);
+void DemoUGens_Load(InterfaceTable*);
+void UnpackFFTUGens_Load(InterfaceTable*);
+void PV_ThirdParty_Load(InterfaceTable*);
+void ML_UGens_Load(InterfaceTable*);
+void MCLDDistortion_Load(InterfaceTable*);
+void Membrane_Load(InterfaceTable*);
+void Mda_Load(InterfaceTable*);
+void FM7_Load(InterfaceTable*);
+void AY_Load(InterfaceTable*);
+void Ladspa_Load(InterfaceTable*);
+void Blackrain_Load(InterfaceTable*);
+void MCLDOsc_Load(InterfaceTable*);
+void JoshPV_Load(InterfaceTable*);
+void ConchaUI_Load(InterfaceTable*);
 
 namespace {
-// Replies (/done, /fail, /n_go...) are ignored for now; Concha will route them to its console.
-void ignoreReply(ReplyAddress*, char*, int) {}
+void loadExtraUGens()
+{
+    static bool loaded = false; // the unit definitions are global, once per process
+    if (loaded) return;
+    loaded = true;
+    for (auto load : {Chaos_Load, DemoUGens_Load, UnpackFFTUGens_Load, PV_ThirdParty_Load, ML_UGens_Load,
+                      MCLDDistortion_Load, Membrane_Load, Mda_Load, FM7_Load, AY_Load, Ladspa_Load, Blackrain_Load,
+                      MCLDOsc_Load, JoshPV_Load, ConchaUI_Load})
+        load(&gInterfaceTable);
+}
 } // namespace
+
+// ---- Concha C API (sc/ConchaSc.h) ---------------------------------------------------------
+
+// Replies (/done, /fail, /n_go...) are ignored (ignoreReply).
 
 extern "C" {
 
@@ -131,11 +219,14 @@ ConchaScWorld* concha_sc_new(const ConchaScOptions* o)
     options.mMaxGraphDefs = 2048;
     options.mRealTimeMemorySize = 64 * 1024; // KiB
     options.mNumRGens = 64;
+    options.mMaxWireBufs = 512; // StrudelDirt's superprimes needs more than the default 64
     options.mLoadGraphDefs = 0;
     options.mVerbosity = o->verbosity;
     options.mUGensPluginPath = o->pluginPath;
     options.mSharedMemoryID = 0;
-    return reinterpret_cast<ConchaScWorld*>(World_New(&options));
+    World* world = World_New(&options); // the first one runs initialize_library() (core UGens)
+    if (world) loadExtraUGens();
+    return reinterpret_cast<ConchaScWorld*>(world);
 }
 
 void concha_sc_free(ConchaScWorld* w)
@@ -155,6 +246,34 @@ void concha_sc_process(ConchaScWorld* w, const float* const* inputs, int numInpu
     auto* world = reinterpret_cast<World*>(w);
     static_cast<SC_HostDriver*>(world->hw->mAudioDriver)
         ->Process(inputs, numInputs, outputs, numOutputs, numSamples, (int64)oscTime);
+}
+
+int concha_sc_sync(ConchaScWorld* w, int timeoutMs)
+{
+    // /sync answers /synced once every earlier asynchronous command (/d_recv...) is done; the World
+    // must run (silent blocks) for their last stage, which happens in its block processing
+    auto* world = reinterpret_cast<World*>(w);
+    std::atomic<bool> done{false};
+    ReplyFunc onReply = [](ReplyAddress* addr, char* msg, int size) {
+        if (size >= 7 && std::strncmp(msg, "/synced", 7) == 0)
+            static_cast<std::atomic<bool>*>(addr->mReplyData)->store(true);
+    };
+    char packet[16] = {'/', 's', 'y', 'n', 'c', 0, 0, 0, ',', 'i', 0, 0, 0, 0, 0, 1};
+    if (!World_SendPacketWithContext(world, (int)sizeof(packet), packet, onReply, &done)) return 0;
+    auto* driver = static_cast<SC_HostDriver*>(world->hw->mAudioDriver);
+    int64 t = 0;
+    for (int ms = 0; ms < timeoutMs && !done.load(); ++ms) {
+        driver->Process(nullptr, 0, nullptr, 0, world->mBufLength, t);
+        t += (int64)std::llround(world->mBufLength / world->mSampleRate * 4294967296.0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return done.load() ? 1 : 0;
+}
+
+int concha_sc_queue_rt(ConchaScWorld* w, const char* message, int size, int64_t oscTime)
+{
+    auto* world = reinterpret_cast<World*>(w);
+    return static_cast<SC_HostDriver*>(world->hw->mAudioDriver)->QueueRt(message, size, (int64)oscTime) ? 1 : 0;
 }
 
 int concha_sc_block_size(ConchaScWorld* w) { return reinterpret_cast<World*>(w)->mBufLength; }

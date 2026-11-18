@@ -6,7 +6,9 @@ portable). AGPL-3.0-or-later. The user writes in French; answer in French.
 Plan: `docs/PLAN.md` (approved). Results: `docs/PHASE0.md` (spikes, Bitwig checklist), `docs/PHASE1.md` (pattern engine,
 parity with Strudel's snapshots, performance), `docs/PHASE2.md` (scheduler, sync, MIDI out, Bitwig checklist), `docs/PHASE3.md` (superdough C++ v1, sample library), `docs/PHASE4.md` (4a: effects, orbits, sources;
 4b: compressor, zzfx, bytebeat, wavetables, transient, lfo/env/bmod on every target, buses, ir, FM matrix, FX chains with
-fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.cc-like REPL, English UI).
+fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.cc-like REPL, English UI), `docs/PHASE6.md` (StrudelDirt in scsynth, one synth
+with superdough: its instruments as voice sources, its effects at the end of the voice, leslie/shimmer on the orbits,
+the user's SynthDef folders, compared with the real StrudelDirt; phase 6 is complete).
 
 ## Rules from the user
 
@@ -51,6 +53,11 @@ fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.c
   `SampleStore`. `src/sched/SoundConvert` maps hap values to SoundParams and logs unsupported controls.
 - `src/library`: `SampleLibrary` (process-wide: named folders in ~/.config/Concha/library.txt, http cache in
   ~/.cache/Concha/http, loader threads), `Decoder` (dr_libs, stb_vorbis), `LibraryHost` (JS natives).
+- `src/sc`: `ScHost` (instruments' World, sd::SynthServer), `ScFx` (effects' World, sd::FxServer), `ScOrbitFx`
+  (leslie/shimmer World, sd::OrbitFxServer), `ScDefs` (packed SynthDefs + index, the user's .scsyndef folders appended
+  at run time: scDefCount/scDef, read before each evaluation), `SC_HostDriver` (RT message queue concha_sc_queue_rt,
+  concha_sc_sync). SynthDef folders are saved in ~/.config/Concha/synthdefs.txt (SampleLibrary). StrudelDirt in
+  `third_party/strudeldirt`; SynthDefs regenerated with `tools/sc/compile_synthdefs.sh` (installed sclang + Vowel quark).
 - `src/plugin` (JUCE processor, `PluginEditor` = window: top bar, code, tabs; `LibraryPanel` = sample folders,
   phase 0 SyncProbe). `src/plugin/ui`: `CodeView` (CodeEditorComponent + playing-hap outlines, flash, sliders,
   completion), `JsTokeniser`, `Theme` (strudel.cc colours, flat tabs), `DocIndex` (reference from
@@ -72,7 +79,14 @@ Bitwig: `~/.clap/Concha.clap`, `~/.vst3/Concha.vst3` (copy after a build when th
 
 ## Gotchas
 
-- SynthDefs must use `OffsetOut` to start on the exact sample.
+- SynthDefs must use `OffsetOut` to start on the exact sample; StrudelDirt's instruments use `Out`, so ScHost
+  returns the block start they write from and the voice reads from there (dirt_gate's OffsetOut alignment).
+- Never call World_SendPacket from the audio thread (malloc): use concha_sc_queue_rt.
+- StrudelDirt effect voices start FxServer::kLatency (64) samples early (PatternWorker / concha_render).
+- StrudelDirt comparison: `python3 tools/sc/compare_strudeldirt.py --cycles 10 tests/strudeldirt/*.js` (installed
+  sclang, fake server; concha_render --trace-sc). Run sclang with an empty XDG_CONFIG_HOME: the user's startup.scd
+  boots a server and SuperDirt.
+- StrudelDirt sends a module parameter the event lacks as 0 (nil), and applies clip twice (hap.duration has it).
 - Do not load the system `UIUGens.so` in the plug-in (its mouse thread aborts at exit).
 - Shallow git submodules sometimes arrive empty: check, then `git submodule update --init`.
 - Carla 2.5.9 here cannot load CLAP; test CLAP in Bitwig.

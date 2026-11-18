@@ -50,7 +50,8 @@ elseif(WIN32)
 endif()
 
 add_library(concha_scsynth STATIC ${concha_scsynth_sources})
-set_target_properties(concha_scsynth PROPERTIES CXX_STANDARD 17 CXX_VISIBILITY_PRESET hidden C_VISIBILITY_PRESET hidden)
+set_target_properties(concha_sc_boost concha_sc_tlsf PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(concha_scsynth PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 17 CXX_VISIBILITY_PRESET hidden C_VISIBILITY_PRESET hidden)
 target_include_directories(concha_scsynth
     PUBLIC
         "${SC}/include/common" "${SC}/include/server" "${SC}/include/plugin_interface" "${SCS}" "${SC}/common"
@@ -78,12 +79,9 @@ add_library(concha_sc_ugens STATIC
     ${SCP}/DynNoiseUGens.cpp ${SCP}/FilterUGens.cpp ${SCP}/GendynUGens.cpp ${SCP}/GrainUGens.cpp ${SCP}/IOUGens.cpp
     ${SCP}/LFUGens.cpp ${SCP}/MulAddUGens.cpp ${SCP}/NoiseUGens.cpp ${SCP}/OscUGens.cpp ${SCP}/PanUGens.cpp
     ${SCP}/PhysicalModelingUGens.cpp ${SCP}/ReverbUGens.cpp ${SCP}/TestUGens.cpp ${SCP}/TriggerUGens.cpp
-    ${SCP}/UnaryOpUGens.cpp ${SCP}/UnpackFFTUGens.cpp ${SCP}/DiskIO_UGens.cpp
-    ${SCP}/FFTInterfaceTable.cpp ${SCP}/FFT_UGens.cpp ${SCP}/PV_UGens.cpp ${SCP}/PartitionedConvolution.cpp
-    ${SCP}/Convolution.cpp ${SCP}/FFT2InterfaceTable.cpp ${SCP}/FeatureDetection.cpp ${SCP}/PV_ThirdParty.cpp
-    ${SCP}/ML.cpp ${SCP}/Loudness.cpp ${SCP}/BeatTrack.cpp ${SCP}/Onsets.cpp ${SCP}/onsetsds.c ${SCP}/KeyTrack.cpp
-    ${SCP}/MFCC.cpp ${SCP}/BeatTrack2.cpp ${SCP}/ML_SpecStats.cpp
-    ${SC3P}/MCLDUGens/MCLDDistortionUGens.cpp
+    ${SCP}/UnaryOpUGens.cpp ${SCP}/DiskIO_UGens.cpp
+    ${SC3P}/MCLDUGens/MCLDDistortionUGens.cpp ${SC3P}/MCLDUGens/MCLDOscUGens.cpp
+    ${PROJECT_SOURCE_DIR}/src/sc/ConchaUIUGens.cpp
     ${SC3P}/MembraneUGens/Membrane.cpp ${SC3P}/MembraneUGens/Membrane_shape.c
     ${SC3P}/MdaUGens/MdaUGens.cpp
     ${SC3P}/SkUGens/FM7.cpp
@@ -99,5 +97,48 @@ target_include_directories(concha_sc_ugens PRIVATE
     "${SC3P}/AYUGens/AY_libayemu/include" "${SC3P}/MdaUGens" "${SC3P}/MembraneUGens")
 target_compile_options(concha_sc_ugens PRIVATE -w -fno-finite-math-only)
 target_link_libraries(concha_sc_ugens PRIVATE PkgConfig::CONCHA_SNDFILE)
+# Plug-ins made of several files share a global `ft` (one per shared library normally): each group
+# is compiled on its own, with its own name for it.
+foreach(group fft pv3 ml unpack joshpv)
+    if(group STREQUAL fft)
+        set(files ${SCP}/FFTInterfaceTable.cpp ${SCP}/FFT_UGens.cpp ${SCP}/PV_UGens.cpp ${SCP}/PartitionedConvolution.cpp)
+    elseif(group STREQUAL pv3)
+        set(files ${SCP}/Convolution.cpp ${SCP}/FFT2InterfaceTable.cpp ${SCP}/FeatureDetection.cpp ${SCP}/PV_ThirdParty.cpp)
+    elseif(group STREQUAL ml)
+        set(files ${SCP}/ML.cpp ${SCP}/Loudness.cpp ${SCP}/BeatTrack.cpp ${SCP}/Onsets.cpp ${SCP}/onsetsds.c ${SCP}/KeyTrack.cpp
+                  ${SCP}/MFCC.cpp ${SCP}/BeatTrack2.cpp ${SCP}/ML_SpecStats.cpp)
+    elseif(group STREQUAL joshpv)
+        set(files ${PROJECT_SOURCE_DIR}/src/sc/JoshPVUGens_safe.cpp) # includes ${SC3P}/JoshUGens/JoshPVUGens.cpp
+    else()
+        set(files ${SCP}/UnpackFFTUGens.cpp)
+    endif()
+    add_library(concha_sc_ugens_${group} OBJECT ${files})
+    set_target_properties(concha_sc_ugens_${group} PROPERTIES CXX_STANDARD 17 CXX_VISIBILITY_PRESET hidden
+        C_VISIBILITY_PRESET hidden POSITION_INDEPENDENT_CODE ON)
+    target_compile_definitions(concha_sc_ugens_${group} PRIVATE STATIC_PLUGINS SC_MEMORY_ALIGNMENT=32 NOVA_SIMD ft=concha_sc_ft_${group})
+    target_include_directories(concha_sc_ugens_${group} PRIVATE $<TARGET_PROPERTY:concha_sc_ugens,INCLUDE_DIRECTORIES> "${SC3P}")
+    target_compile_options(concha_sc_ugens_${group} PRIVATE -w -fno-finite-math-only)
+    target_sources(concha_sc_ugens PRIVATE $<TARGET_OBJECTS:concha_sc_ugens_${group}>)
+endforeach()
 target_compile_definitions(concha_scsynth PRIVATE STATIC_PLUGINS)
 target_link_libraries(concha_scsynth PUBLIC concha_sc_ugens)
+
+# ---- StrudelDirt's SynthDefs, packed into the binary (tools/sc/compile_synthdefs.sh makes them) ----
+add_executable(concha_pack_synthdefs tools/embed/pack_synthdefs.cpp)
+set(CONCHA_SYNTHDEFS_DIR ${PROJECT_SOURCE_DIR}/resources/strudeldirt/synthdefs)
+file(GLOB concha_synthdef_files CONFIGURE_DEPENDS ${CONCHA_SYNTHDEFS_DIR}/*.scsyndef ${CONCHA_SYNTHDEFS_DIR}/index.json)
+add_custom_command(
+    OUTPUT ${PROJECT_BINARY_DIR}/sc/EmbeddedSynthDefs.cpp
+    COMMAND concha_pack_synthdefs ${CONCHA_SYNTHDEFS_DIR} ${PROJECT_BINARY_DIR}/sc/EmbeddedSynthDefs.cpp
+    DEPENDS concha_pack_synthdefs ${concha_synthdef_files}
+    COMMENT "Packing StrudelDirt's SynthDefs"
+    VERBATIM)
+add_library(concha_scdefs STATIC src/sc/ScDefs.cpp ${PROJECT_BINARY_DIR}/sc/EmbeddedSynthDefs.cpp)
+target_include_directories(concha_scdefs PUBLIC ${PROJECT_SOURCE_DIR}/src)
+set_target_properties(concha_scdefs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# the instruments' World for a superdough engine (sd::SynthServer)
+add_library(concha_schost STATIC src/sc/ScHost.cpp src/sc/ScFx.cpp src/sc/ScOrbitFx.cpp)
+target_include_directories(concha_schost PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(concha_schost PUBLIC concha_scsynth concha_scdefs)
+set_target_properties(concha_schost PROPERTIES POSITION_INDEPENDENT_CODE ON)

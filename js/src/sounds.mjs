@@ -7,7 +7,7 @@
 //   __concha_fetch(url) -> text      (http(s) with a disk cache, file:// and absolute paths)
 //   __concha_library(name) -> JSON   (a named sample folder of the library, as a sample map)
 // They are synchronous: they run on the evaluation thread, where waiting is fine.
-import { logger } from '@strudel/core';
+import { logger, isNote } from '@strudel/core';
 import { compileKabel } from './kabel.mjs';
 import { getCommonSampleInfo, noteToMidi, midiToFreq } from '@strudel/superdough/util.mjs';
 import { buildSamples } from '@strudel/superdough/zzfx_fork.mjs';
@@ -230,6 +230,12 @@ function irUrl(value) {
   return undefined;
 }
 
+// StrudelDirt's instruments (the embedded scsynth's SynthDefs), under the names superdough lacks
+export function registerSuperDirtSynths(names) {
+  for (const name of names) if (!soundMap.has(String(name).toLowerCase())) registerSound(name, 'superdirt');
+  return names.length;
+}
+
 export function resolveSound(value, timing = {}) {
   let s = value.s ?? 'triangle';
   if (['-', '~', '_'].includes(s)) return { ...value, __type: 'skip' };
@@ -293,6 +299,16 @@ export function resolveSound(value, timing = {}) {
     }
     out.__type = 'bytebeat';
     if (!out.__buffer) out.__type = 'skip';
+    return out;
+  }
+  if (sound.type === 'superdirt') {
+    // osc.mjs parseControlsFromHap + StrudelDirt's defaults: midinote from note (octave 3 for note
+    // names), else (n ?? 36) + octave * 12; freq = midinote.midicps unless freq is given
+    let midinote;
+    if (value.note !== undefined) midinote = isNote(value.note) ? noteToMidi(value.note, value.octave || 3) : Number(value.note);
+    else midinote = Number(value.n ?? 36) + Number(value.octave ?? 0) * 12;
+    out.__freq = value.freq ?? 440 * Math.pow(2, (midinote - 69) / 12);
+    out.__midinote = midinote;
     return out;
   }
   if (sound.type === 'synth') {
