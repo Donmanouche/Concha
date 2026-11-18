@@ -9,9 +9,11 @@ using namespace ui;
 ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(p)
 {
     setLookAndFeel(&lookAndFeel_);
+    // OpenGL paints the editor only while a shader is drawn behind the code (attached then): JUCE's
+    // OpenGL thread takes the message thread's lock to paint components and keeps it while the
+    // display server hands it a buffer, which froze typing. The text is painted in software.
     gl_.setComponentPaintingEnabled(true);
     gl_.setRenderer(this);
-    gl_.attachTo(*this);
 
     // ---- code ----
     syncedCode_ = proc_.code();
@@ -25,6 +27,7 @@ ConchaEditor::ConchaEditor(ConchaProcessor& p) : AudioProcessorEditor(p), proc_(
         if (e && reference_) reference_->show(e, word);
     };
     addAndMakeVisible(code_);
+    addChildComponent(strip_);
 
     // ---- top bar ----
     update_.setTooltip("Evaluate the code (Ctrl+Enter or Alt+Enter)");
@@ -137,6 +140,7 @@ void ConchaEditor::codeDocumentTextDeleted(int, int)
 void ConchaEditor::paint(juce::Graphics& g)
 {
     if (shader_.active()) g.excludeClipRegion(code_.getBounds()); // the shader shows through there
+    if (strip_.isVisible()) g.excludeClipRegion(strip_.getBounds()); // the band paints itself (opaque)
     g.fillAll(theme::background);
     auto top = getLocalBounds().removeFromTop(44);
     g.setColour(theme::panel);
@@ -174,6 +178,8 @@ void ConchaEditor::resized()
     } else {
         tabs_.setVisible(false);
     }
+    strip_.setVisible(stripWanted_); // the oscilloscope band, when the code asks for it
+    if (stripWanted_) strip_.setBounds(r.removeFromBottom(juce::jlimit(170, 320, r.getHeight() * 34 / 100)));
     code_.setBounds(r.reduced(10, 6)); // strudel.cc's editor has some air around the text
     if (library_) library_->setBounds(r);
     auto& ui = proc_.state().state;
@@ -198,6 +204,23 @@ void ConchaEditor::updateShader(const std::vector<PatternWorker::VisualHap>& hap
     gl_.triggerRepaint();
 }
 
+// the band's data at the DAW's position: the channels' haps, the analysers
+void ConchaEditor::updateStrip()
+{
+    const auto& v = proc_.transportView();
+    ui::ScopeStrip::Model m = stripModel_;
+    m.cycle = v.cycle.load();
+    m.sampleRate = proc_.sampleRate();
+    if (m.channels) {
+        uint32_t generation = 0;
+        for (const auto& h : proc_.channelHaps(m.cycle - 1.3, m.cycle + 1.3, generation))
+            m.haps.push_back({h.begin, h.end, h.block, h.note, h.gain, h.s});
+    }
+    if (m.scope) proc_.uiAnalyser(stripScope_, false, m.scopeData);
+    if (m.fft) proc_.uiAnalyser(stripFft_, true, m.fftDb);
+    strip_.update(m); // repaints the band only
+}
+
 void ConchaEditor::renderOpenGL()
 {
     juce::Rectangle<int> area;
@@ -210,17 +233,19 @@ void ConchaEditor::renderOpenGL()
     const auto vp = (area.toDouble() * scale).toNearestInt();
     const int targetHeight = int(std::lround(target.getHeight()));
     shader_.render(gl_, vp, targetHeight);
-    if (onShaderFrame && shader_.active() && !vp.isEmpty()) {
+    if (onGLFrame) {
         using namespace juce::gl;
-        std::vector<uint8_t> px(size_t(vp.getWidth() * vp.getHeight() * 4));
-        glReadPixels(vp.getX(), targetHeight - vp.getBottom(), vp.getWidth(), vp.getHeight(), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-        juce::Image img(juce::Image::ARGB, vp.getWidth(), vp.getHeight(), false);
-        for (int y = 0; y < vp.getHeight(); ++y)
-            for (int x = 0; x < vp.getWidth(); ++x) {
-                const uint8_t* p = px.data() + ((vp.getHeight() - 1 - y) * vp.getWidth() + x) * 4;
+        const int w = int(std::lround(target.getWidth())), h = targetHeight;
+        std::vector<uint8_t> px(size_t(w * h * 4));
+        glViewport(0, 0, w, h);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+        juce::Image img(juce::Image::ARGB, w, h, false);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const uint8_t* p = px.data() + ((h - 1 - y) * w + x) * 4;
                 img.setPixelAt(x, y, juce::Colour(p[0], p[1], p[2]));
             }
-        onShaderFrame(img);
+        onGLFrame(img);
     }
 }
 
@@ -238,10 +263,21 @@ void ConchaEditor::timerCallback()
         for (const auto& x : info.sliders)
             sliders.push_back({x.from, x.to, juce::String::fromUTF8(x.value.c_str()), x.min, x.max, x.step});
         code_.setSliders(sliders);
-        std::vector<CodeView::WidgetInfo> widgets;
-        for (const auto& w : info.widgets) widgets.push_back({w.canvas, w.to});
-        code_.setWidgets(widgets);
+        // the oscilloscope band: what the code asks for
+        stripModel_ = {};
+        stripModel_.channels = info.visuals.channels;
+        stripModel_.scope = !info.visuals.scope.empty();
+        stripModel_.fft = !info.visuals.fft.empty();
+        for (const auto& b : info.blocks) stripModel_.blockNames.push_back(b.name);
+        stripScope_ = info.visuals.scope.empty() ? std::string() : info.visuals.scope.front();
+        stripFft_ = info.visuals.fft.empty() ? std::string() : info.visuals.fft.front();
+        if (strip_.wanted(stripModel_) != stripWanted_) {
+            stripWanted_ = !stripWanted_;
+            resized();
+        }
         shader_.setSource(info.shader);
+        if (!info.shader.empty() && !gl_.isAttached()) gl_.attachTo(*this);
+        if (info.shader.empty() && gl_.isAttached()) gl_.detach();
         code_.setShaderActive(!info.shader.empty());
         uniformOnsets_.clear();
         juce::StringArray names;
@@ -270,6 +306,11 @@ void ConchaEditor::timerCallback()
         updateShader(haps, v.cycle.load(), v.bpm.load() / 60.0 / N);
     }
     for (const auto& e : shader_.takeErrors()) console_->add(juce::String::fromUTF8(e.c_str()), theme::error);
+    {
+        std::lock_guard<std::mutex> lock(shaderAreaMutex_);
+        stripArea_ = strip_.isVisible() ? strip_.getBounds() : juce::Rectangle<int>();
+    }
+    if (stripWanted_ && (ticks_ % 2 == 0)) updateStrip(); // 30 frames a second: enough for the band, half the painting
     if (auto frames = proc_.takeFrames(); !frames.empty()) code_.addFrames(frames);
 
     std::array<float, 16> peaks{};

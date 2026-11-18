@@ -49,15 +49,10 @@ public:
     std::function<void(const juce::String& id, double value)> onSlider;
     void flash();
 
-    // Strudel's visuals: the frames of the playing code's canvases (replayed on persistent images;
-    // a new code generation starts from empty canvases). Background canvases fill the editor behind
-    // the code; inline widgets (._pianoroll()...) sit at the right of the line where their call ends.
+    // A user's own .draw() / .onPaint() (Strudel's canvases): the frames, replayed on persistent
+    // images behind the code (a new code generation starts from empty canvases). Strudel's built-in
+    // visuals are the oscilloscope band (ScopeStrip) instead.
     void addFrames(const std::vector<PatternWorker::Frame>& frames);
-    struct WidgetInfo {
-        std::string canvas;
-        int to = 0;
-    };
-    void setWidgets(const std::vector<WidgetInfo>& widgets);
     void paint(juce::Graphics& g) override;
     void setShaderActive(bool on) { shaderActive_ = on; repaint(); } // the background is the shader's
 
@@ -110,13 +105,6 @@ private:
     std::map<std::string, std::unique_ptr<Canvas2D>> canvases_;
     uint32_t canvasGeneration_ = 0;
     bool shaderActive_ = false;
-    struct Widget {
-        std::string canvas;
-        std::unique_ptr<juce::CodeDocument::Position> to;
-    };
-    std::vector<Widget> widgets_;
-    void paintWidgets(juce::Graphics& g);
-    bool isWidgetCanvas(const std::string& id) const;
 };
 
 } // namespace concha::ui

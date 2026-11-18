@@ -12,6 +12,9 @@
 
 namespace concha {
 
+static std::vector<PatternWorker::ActiveCodeInfo::Block> parseBlocks(const std::string& code);
+
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -141,6 +144,8 @@ void PatternWorker::queryLoop()
                 activeInfo_.sliders = standbySliders_;
                 activeInfo_.widgets = standbyWidgets_;
                 activeInfo_.shader = standbyShader_;
+                activeInfo_.visuals = standbyVisuals_;
+                activeInfo_.blocks = parseBlocks(standbyCode_);
                 activeInfo_.soundNames = standbySounds_;
                 swapped = true;
             }
@@ -177,6 +182,7 @@ void PatternWorker::queryLoop()
         runQueries(t);
         playMidiNotes(t);
         flushExternals(t);
+        runChannelQueries(t);
 
         PatternEngine& engine = *engines_[active_];
         for (auto& m : engine.takeLog()) log(std::move(m.type), std::move(m.message));
@@ -258,6 +264,7 @@ void PatternWorker::evalLoop()
             standbySliders_ = r.sliders;
             standbyWidgets_ = r.widgets;
             standbyShader_ = r.shader;
+            standbyVisuals_ = r.visuals;
             standbySounds_ = sounds;
         } else if (log_.size() < 1000) {
             log_.push_back({"error", r.error});
@@ -328,6 +335,119 @@ void PatternWorker::runQueries(const TransportState& t)
 
 // MQTT and serial messages: handed to the sender with their time once their epoch plays (the
 // prepared start waits for the start); messages of an older epoch (stop, jump) are dropped.
+// The code's blocks, as Strudel's labels: a line starting with `name:` or `$:` opens a block (`_name:`
+// is muted, still a block). No label: the whole code is one block.
+static std::vector<PatternWorker::ActiveCodeInfo::Block> parseBlocks(const std::string& code)
+{
+    std::vector<PatternWorker::ActiveCodeInfo::Block> blocks;
+    int dollars = 0;
+    size_t lineStart = 0;
+    while (lineStart <= code.size()) {
+        size_t i = lineStart;
+        while (i < code.size() && (code[i] == ' ' || code[i] == '\t')) ++i;
+        size_t j = i;
+        while (j < code.size() && (std::isalnum(uint8_t(code[j])) || code[j] == '_' || code[j] == '$')) ++j;
+        if (j > i && j < code.size() && code[j] == ':' && (j + 1 >= code.size() || code[j + 1] != ':')) {
+            std::string name = code.substr(i, j - i);
+            if (!blocks.empty()) blocks.back().end = int(lineStart);
+            if (name == "$" || name == "_$") name = "$" + std::to_string(++dollars);
+            if (name.size() > 1 && name[0] == '_') name = name.substr(1);
+            blocks.push_back({name, int(lineStart), int(code.size())});
+        }
+        const size_t nl = code.find('\n', lineStart);
+        if (nl == std::string::npos) break;
+        lineStart = nl + 1;
+    }
+    if (blocks.empty()) blocks.push_back({"pattern", 0, int(code.size())});
+    return blocks;
+}
+
+std::vector<PatternWorker::ChannelHap> PatternWorker::channelHaps(double from, double to, uint32_t& generation)
+{
+    std::lock_guard<std::mutex> lock(channelMutex_);
+    generation = channelGeneration_;
+    std::vector<ChannelHap> out;
+    for (const auto& h : channel_)
+        if (h.end > from && h.begin < to) out.push_back(h);
+    return out;
+}
+
+// midi number of a hap: note (name or number), midinote, freq; NaN without pitch
+static float hapPitch(const PatternEvent& e)
+{
+    if (const ParamValue* n = e.find("note")) {
+        if (n->type == ParamValue::Type::Number) return float(n->number);
+        static const int chroma[7] = {9, 11, 0, 2, 4, 5, 7}; // a..g
+        const std::string& s = n->string;
+        if (!s.empty() && std::tolower(uint8_t(s[0])) >= 'a' && std::tolower(uint8_t(s[0])) <= 'g') {
+            int m = chroma[std::tolower(uint8_t(s[0])) - 'a'];
+            size_t i = 1;
+            for (; i < s.size() && (s[i] == '#' || s[i] == 's' || s[i] == 'b' || s[i] == 'f'); ++i) m += s[i] == '#' || s[i] == 's' ? 1 : -1;
+            const int octave = i < s.size() ? std::atoi(s.c_str() + i) : 3;
+            return float((octave + 1) * 12 + m);
+        }
+    }
+    if (const ParamValue* m = e.find("midinote"); m && m->type == ParamValue::Type::Number) return float(m->number);
+    if (const ParamValue* f = e.find("freq"); f && f->type == ParamValue::Type::Number && f->number > 0)
+        return float(69 + 12 * std::log2(f->number / 440.0));
+    return NAN;
+}
+
+// Haps for the oscilloscope's channels, queried ahead in short chunks (the music's queries first).
+void PatternWorker::runChannelQueries(const TransportState& t)
+{
+    bool wanted;
+    uint32_t generation;
+    std::vector<ActiveCodeInfo::Block> blocks;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        wanted = visuals_.wanted && activeInfo_.visuals.channels;
+        generation = activeInfo_.generation;
+        if (wanted && generation != channelGeneration_) blocks = activeInfo_.blocks;
+    }
+    if (!wanted) return;
+    const double N = std::max(1e-6, t.beatsPerCycle);
+    const double cps = t.bpm / 60.0 / N;
+    const double now = t.ppq / N;
+    if (generation != channelGeneration_) {
+        std::lock_guard<std::mutex> lock(channelMutex_);
+        channel_.clear();
+        channelGeneration_ = generation;
+        channelCursor_ = now - 1.3;
+        channelBlocks_ = blocks;
+    }
+    if (channelCursor_ < now - 2.0 || channelCursor_ > now + 3.0) { // a jump or a loop
+        std::lock_guard<std::mutex> lock(channelMutex_);
+        channel_.clear();
+        channelCursor_ = now - 1.3;
+    }
+    PatternEngine& engine = *engines_[active_];
+    for (int chunk = 0; chunk < 2 && channelCursor_ < now + 1.5; ++chunk) {
+        const double end = channelCursor_ + 0.25;
+        std::vector<PatternEvent> events;
+        if (!engine.query(channelCursor_, end, cps, events)) break;
+        std::lock_guard<std::mutex> lock(channelMutex_);
+        for (const auto& e : events) {
+            if (!e.visual) continue;
+            ChannelHap h;
+            h.begin = e.begin;
+            h.end = e.begin + std::max(1e-3, e.duration);
+            const int at = e.locations.empty() ? 0 : e.locations.front().first;
+            for (size_t b = 0; b < channelBlocks_.size(); ++b)
+                if (at >= channelBlocks_[b].start && at < channelBlocks_[b].end) h.block = int(b);
+            h.note = hapPitch(e);
+            if (const ParamValue* g = e.find("gain"); g && g->type == ParamValue::Type::Number) h.gain = float(g->number);
+            if (const ParamValue* v = e.find("velocity"); v && v->type == ParamValue::Type::Number) h.gain *= float(v->number);
+            if (const ParamValue* s = e.find("s"); s && s->type == ParamValue::Type::String) h.s = s->string;
+            channel_.push_back(std::move(h));
+        }
+        channelCursor_ = end;
+    }
+    std::lock_guard<std::mutex> lock(channelMutex_);
+    while (!channel_.empty() && channel_.front().end < now - 2.0) channel_.pop_front();
+    while (channel_.size() > 20000) channel_.pop_front();
+}
+
 void PatternWorker::setVisuals(bool wanted, int width, int height, double pixelRatio)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -367,7 +487,12 @@ void PatternWorker::visualLoop()
                 slidersSeen = visualSliders_.size();
             }
         }
-        if (!v.wanted || generation == 0) {
+        bool custom;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            custom = activeInfo_.visuals.custom;
+        }
+        if (!v.wanted || generation == 0 || !custom) { // only a user's own .draw() needs this engine
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }

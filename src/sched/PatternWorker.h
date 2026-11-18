@@ -19,6 +19,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <memory>
+#include <cmath>
 #include <deque>
 #include <mutex>
 #include <optional>
@@ -68,6 +69,12 @@ public:
         std::vector<std::string> soundNames;
         std::vector<EvalResult::Widget> widgets;
         std::string shader;
+        EvalResult::Visuals visuals;
+        struct Block { // a `name:` / `$:` block of the code (the oscilloscope's channels)
+            std::string name;
+            int start = 0, end = 0;
+        };
+        std::vector<Block> blocks;
     };
     ActiveCodeInfo activeCodeInfo() const;
 
@@ -80,6 +87,17 @@ public:
         std::vector<CanvasFrame> canvases;
     };
     std::vector<Frame> takeFrames();
+
+    // The oscilloscope's channels: the haps of .pianoroll() & co. between `from` and `to` (cycles),
+    // queried ahead of the music (up to 1.5 cycles) while the window wants them. Any thread.
+    struct ChannelHap {
+        double begin = 0, end = 0;
+        int block = 0;           // ActiveCodeInfo::blocks index
+        float note = NAN;        // midi number, NaN: no pitch (drums)
+        float gain = 1;
+        std::string s;
+    };
+    std::vector<ChannelHap> channelHaps(double from, double to, uint32_t& generation);
 
     // A queried hap, for highlighting its code ranges while it plays (cycles, whole).
     struct VisualHap {
@@ -148,6 +166,13 @@ private:
     std::vector<EvalResult::Slider> standbySliders_;
     std::vector<EvalResult::Widget> standbyWidgets_;
     std::string standbyShader_;
+    EvalResult::Visuals standbyVisuals_;
+    void runChannelQueries(const TransportState& t);
+    std::mutex channelMutex_;
+    std::deque<ChannelHap> channel_; // guarded by channelMutex_
+    uint32_t channelGeneration_ = 0;
+    double channelCursor_ = -1e9;    // query thread
+    std::vector<ActiveCodeInfo::Block> channelBlocks_; // query thread
     void visualLoop();
     std::vector<std::pair<std::string, double>> visualSliders_; // guarded by mutex_: slider moves for the visuals' engine
     struct VisualsRequest {

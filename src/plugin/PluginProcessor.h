@@ -9,6 +9,7 @@
 #include "sc/ScHost.h"
 #include "superdough/Engine.h"
 
+#include <map>
 #include <mutex>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -87,6 +88,14 @@ public:
     // the main output for shaders: Shadertoy's audio texture rows (512 values, 0..1). Message thread.
     void shaderAudio(std::vector<float>& spectrum, std::vector<float>& wave);
     float beatsPerCycle() const { return beatsPerCycle_->load(); }
+    // the oscilloscope band (message thread): its channels' haps, an analyser's time window (fftSize
+    // samples) or spectrum (dB)
+    std::vector<PatternWorker::ChannelHap> channelHaps(double from, double to, uint32_t& generation)
+    {
+        return worker_.channelHaps(from, to, generation);
+    }
+    int uiAnalyser(const std::string& id, bool spectrum, std::vector<float>& out);
+    double sampleRate() const { return sampleRate_; }
     std::array<float, kNumStereoBuses> takePeaks()
     {
         std::array<float, kNumStereoBuses> out{};
@@ -112,7 +121,8 @@ private:
     void readMidiInput(const juce::MidiBuffer& midi, int numSamples);
     juce::MidiBuffer midiInput_;
     std::array<std::vector<float>, 16> analyserSmooth_;
-    std::vector<float> shaderSmooth_; // spectrum smoothing per analyser id (pattern thread)
+    std::vector<float> shaderSmooth_;
+    std::map<std::string, std::vector<float>> uiSmooth_; // spectrum smoothing per analyser (message thread) // spectrum smoothing per analyser id (pattern thread)
     SeqLock<TransportState> transport_;
     SeqLock<SwapPoint> swap_;
     lib::LibraryHost host_{lib::SampleLibrary::instance()};

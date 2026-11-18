@@ -28,6 +28,7 @@ struct PatternEvent {
     double duration = 0.0; // hap.duration (clip included), in cycles
     std::vector<std::pair<std::string, ParamValue>> params; // hap.value
     std::vector<std::pair<int, int>> locations;             // code ranges [start, end)
+    bool visual = false; // .pianoroll() & co.: a hap of an oscilloscope channel (js/src/visuals.mjs)
 
     const ParamValue* find(std::string_view key) const;
 };
@@ -58,6 +59,11 @@ struct EvalResult {
     };
     std::vector<Widget> widgets;
     std::string shader; // shader(`...`): Concha's GLSL background, empty for none
+    struct Visuals {    // what the code's visual functions asked for
+        bool channels = false;           // .pianoroll() & co.: the main screen
+        std::vector<std::string> scope, fft; // the analysers of .scope() / .spectrum()
+        bool custom = false;             // its own .draw() / .onPaint(): Strudel's canvases
+    } visuals;
     double milliseconds = 0.0;
 };
 

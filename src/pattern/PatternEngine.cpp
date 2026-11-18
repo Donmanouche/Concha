@@ -460,6 +460,16 @@ EvalResult PatternEngine::evaluate(std::string_view code)
                 x.step = std::isnan(st) ? 0.0 : st;
                 res.sliders.push_back(std::move(x));
             }
+            Value vis = r.get("visuals");
+            if (JS_IsObject(vis.v)) {
+                res.visuals.channels = JS_ToBool(ctx, vis.get("channels").v) == 1;
+                res.visuals.custom = JS_ToBool(ctx, vis.get("custom").v) == 1;
+                for (const char* k : {"scope", "fft"}) {
+                    Value list = vis.get(k);
+                    auto& out = std::string_view(k) == "scope" ? res.visuals.scope : res.visuals.fft;
+                    for (uint32_t i = 0, n = JS_IsArray(list.v) ? list.length() : 0; i < n; ++i) out.push_back(list.at(i).string());
+                }
+            }
             res.shader = r.get("shader").string();
             if (res.shader == "undefined") res.shader.clear();
             Value wl = r.get("widgets");
@@ -509,6 +519,7 @@ bool PatternEngine::query(double begin, double end, double cps, std::vector<Patt
         pe.begin = e.get("begin").number();
         pe.end = e.get("end").number();
         pe.duration = e.get("dur").number(pe.end - pe.begin);
+        pe.visual = JS_IsString(e.get("vis").v);
         Value value = e.get("value");
         if (JS_IsObject(value.v)) I.readParams(value.v, pe.params);
         Value locs = e.get("locs");

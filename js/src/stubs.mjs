@@ -25,7 +25,9 @@ export function toEvent(kind, hap, extra) {
   const value = typeof hap.value === 'object' && hap.value !== null ? hap.value : { value: hap.value };
   const locs = (hap.context?.locations ?? []).map((l) => [l.start, l.end]);
   // dur: hap.duration, which includes clip (what webaudioOutput passes to superdough), in cycles.
-  return { kind, begin: num(hap.whole.begin), end: num(hap.whole.end), dur: num(hap.duration), value, locs, ...extra };
+  const e = { kind, begin: num(hap.whole.begin), end: num(hap.whole.end), dur: num(hap.duration), value, locs, ...extra };
+  if (hap.context?.conchaVisual) e.vis = hap.context.conchaVisual; // a channel of the oscilloscope (visuals.mjs)
+  return e;
 }
 
 // midi, mqtt, robot and serial are real (src/midi.mjs, src/io.mjs); the others go out with their

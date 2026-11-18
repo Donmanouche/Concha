@@ -9,6 +9,7 @@
 #include "plugin/ui/CodeView.h"
 #include "plugin/ui/JsTokeniser.h"
 #include "plugin/ui/Panels.h"
+#include "plugin/ui/ScopeStrip.h"
 #include "plugin/ui/ShaderLayer.h"
 #include "plugin/ui/Theme.h"
 
@@ -32,8 +33,10 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
-    // For tools (concha_ui_shot): the shader layer's pixels after each OpenGL frame (GL thread).
-    std::function<void(const juce::Image&)> onShaderFrame;
+    // For tools (concha_ui_shot): what OpenGL drew (shader, oscilloscope band) under the components,
+    // after each frame (GL thread).
+    std::function<void(const juce::Image&)> onGLFrame;
+
 
 private:
     void timerCallback() override;
@@ -45,9 +48,18 @@ private:
     void showFolders();
     void insert(const juce::String& text);
     // shader(`...`) behind the code (ui::ShaderLayer), on the OpenGL thread
-    void newOpenGLContextCreated() override {}
+    void newOpenGLContextCreated() override { gl_.setSwapInterval(0); } // no vsync wait while JUCE holds the locks
     void renderOpenGL() override;
-    void openGLContextClosing() override { shader_.release(); }
+    void openGLContextClosing() override
+    {
+        shader_.release();
+    }
+    void updateStrip();
+    ui::ScopeStrip strip_;
+    bool stripWanted_ = false;
+    ui::ScopeStrip::Model stripModel_;      // what the evaluated code asked for
+    juce::Rectangle<int> stripArea_;        // guarded by shaderAreaMutex_
+    std::string stripScope_, stripFft_;     // their analysers' ids
     void updateShader(const std::vector<PatternWorker::VisualHap>& haps, double cycle, double cps);
     ui::ShaderLayer shader_;
     std::mutex shaderAreaMutex_;

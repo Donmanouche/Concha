@@ -225,28 +225,28 @@ TEST("Tidal (tree-sitter in C++) and Mondo")
     if (ev.size() == 3) CHECK(ev[2].find("note") && ev[2].find("note")->string == "g3");
 }
 
-TEST("visuals: pianoroll and inline widgets record their canvas calls")
+TEST("visuals: .pianoroll() & co. mark their haps (no drawing in JS); scope / spectrum ask for screens")
 {
     auto& e = engine();
-    e.setViewport(400, 200, 1.0);
+    auto r = e.evaluate("drums: s(\"bd*2\").pianoroll()\nbass: note(\"c2 e2\").s(\"sine\")._punchcard()\nlead: note(\"g4\").s(\"sine\")");
+    CHECK(r.ok && r.visuals.channels && r.visuals.scope.empty() && !r.visuals.custom);
+    CHECK(!e.hasFrames()); // nothing animated in JS
     std::vector<PatternEvent> ev;
-    CHECK(e.evaluate("note(\"c3 e3 g3\").s(\"sine\").pianoroll()").ok);
-    CHECK(e.hasFrames());
+    CHECK(e.query(0, 1, 0.5, ev));
+    int marked = 0, plain = 0;
+    for (const auto& x : ev) (x.visual ? marked : plain) += 1;
+    CHECK(marked == 4 && plain == 1); // bd bd c2 e2 marked, g4 not
+    r = e.evaluate("note(\"c3\").s(\"sine\").scope()._spectrum()");
+    CHECK(r.ok && !r.visuals.channels && r.visuals.scope.size() == 1 && r.visuals.fft.size() == 1);
+    CHECK(r.visuals.scope[0] == "1");
+    r = e.evaluate("note(\"c3\").s(\"sine\")");
+    CHECK(r.ok && !r.visuals.channels && r.visuals.scope.empty() && r.visuals.fft.empty());
+    // a user's own drawing keeps Strudel's canvas
+    e.setViewport(400, 200, 1.0);
+    r = e.evaluate("note(\"c3 e3\").s(\"sine\").draw((haps) => { getDrawContext().fillRect(0, 0, 10, 10) }, { id: 2 })");
+    CHECK(r.ok && r.visuals.custom && e.hasFrames());
     std::vector<CanvasFrame> frames;
-    CHECK(e.frame(0.5, 16, frames));
-    CHECK(frames.size() == 1);
-    if (frames.size() == 1) {
-        CHECK(!frames[0].widget && frames[0].width == 400 && frames[0].height == 200);
-        int fills = 0;
-        for (size_t i = 0; i < frames[0].nums.size(); ++i) fills += frames[0].nums[i] == 11; // fillRect opcode (may count args too)
-        CHECK(fills >= 3);
-    }
-    CHECK(e.evaluate("note(\"c3 e3\").s(\"sine\")._pianoroll()").ok);
-    CHECK(e.frame(1.0, 32, frames));
-    CHECK(frames.size() == 1 && frames[0].widget && frames[0].width == 500 && frames[0].height == 60);
-    CHECK(frames.size() == 1 && frames[0].id.find("_widget__pianoroll_") != std::string::npos);
-    CHECK(e.evaluate("note(\"c3\").s(\"sine\")").ok);
-    CHECK(!e.hasFrames()); // the old animations stopped
+    CHECK(e.frame(0.5, 16, frames) && !frames.empty());
 }
 
 TEST("shader`...`: the GLSL text arrives untouched, not as mini-notation")

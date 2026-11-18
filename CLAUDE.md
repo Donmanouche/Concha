@@ -10,7 +10,7 @@ fxi, stretch, K(); phase 4 is complete), `docs/PHASE5.md` (the editor: strudel.c
 with superdough: its instruments as voice sources, its effects at the end of the voice, leslie/shimmer on the orbits,
 the user's SynthDef folders, compared with the real StrudelDirt; phase 6 is complete), `docs/PHASE7.md` (MIDI in,
 macros, GM soundfonts, Mondo, Tidal via tree-sitter in C, gamepad, MQTT, serial; Csound postponed), `docs/PHASE8.md`
-(Strudel's visuals run unchanged on recording canvases replayed by the window; widgets; analysers; Concha's shaders).
+(Strudel's visuals as an oscilloscope band under the code; analysers; Concha's shaders; why no OpenGL).
 
 ## Rules from the user
 
@@ -58,12 +58,12 @@ macros, GM soundfonts, Mondo, Tidal via tree-sitter in C, gamepad, MQTT, serial;
   `src/io/ExternalOut`: curl CONNECT_ONLY + hand-written WebSocket/MQTT 3.1.1, termios serial),
   `js/src/tree-sitter-native.mjs` + `src/pattern/HaskellParser` (Tidal: web-tree-sitter replaced at bundle time;
   third_party/tree-sitter, tree-sitter-haskell), `src/input/Gamepad` (evdev, navigator.getGamepads shim).
-- Visuals: `js/src/canvas.mjs` (recording Canvas 2D, document/rAF shims, opcodes mirrored in
-  `src/plugin/ui/Canvas2D.h`), `js/src/visuals.mjs` (@strudel/draw, webaudio scope/spectrum, inline widgets,
-  shader`...`/glsl`...` language literals, .uniform()), `js/src/analysers.mjs` (bundled as 'superdough'),
-  `PatternWorker::visualLoop` (third JS engine on its own thread: frames never delay queries), `CodeView`
-  (background canvases, widget column), `src/plugin/ui/ShaderLayer` (GLSL in the editor's OpenGL renderer),
-  `src/superdough/Analyser` (taps per analyser slot, slot 0 = main output).
+- Visuals: `js/src/visuals.mjs` (.pianoroll() & co. only mark haps (context.conchaVisual -> PatternEvent::visual)
+  and report EvalResult::visuals; shader`...`/glsl`...` language literals, .uniform()), `PatternWorker::
+  runChannelQueries` (channel haps queried ahead, per `$:` block), `src/plugin/ui/ScopeStrip` (the oscilloscope
+  band, software painting, cached graticule), `src/plugin/ui/ShaderLayer` (GLSL), `src/superdough/
+  Analyser` (taps per analyser slot, slot 0 = main output). A user's own .draw()/.onPaint() still uses
+  `js/src/canvas.mjs` + `Canvas2D` + `PatternWorker::visualLoop` (third JS engine, started only for them).
 - `src/library`: `SampleLibrary` (process-wide: named folders in ~/.config/Concha/library.txt, http cache in
   ~/.cache/Concha/http, loader threads), `Decoder` (dr_libs, stb_vorbis), `LibraryHost` (JS natives).
 - `src/sc`: `ScHost` (instruments' World, sd::SynthServer), `ScFx` (effects' World, sd::FxServer), `ScOrbitFx`
@@ -132,5 +132,9 @@ Bitwig: `~/.clap/Concha.clap`, `~/.vst3/Concha.vst3` (copy after a build when th
 - Soundfonts: sample URLs "sf:<preset url>#<midi>" are resolved by SampleLibrary's loaders (one decode per zone,
   SampleStore::alias for the other notes); SampleData carries loop and baseDetune.
 - Never run JS frames on the query thread (a frame can take 100s of ms): visuals have their own engine.
-- `concha_ui_shot` snapshots have no OpenGL; CONCHA_SHOT_SHADER=<png> opens an off-screen GL window for shaders.
+- `concha_ui_shot` snapshots have no OpenGL; CONCHA_SHOT_GL=1 opens an off-screen GL window and composes both.
+- No OpenGL for the interface on Linux: an attached OpenGLContext froze typing (JUCE paints components on its
+  thread under the message lock; makeActive holds the X11 lock while dri3 waits for a buffer). The editor's
+  context is attached only while a shader is declared, with setSwapInterval(0). Measure with
+  CONCHA_SHOT_TYPING=1 CONCHA_SHOT_GL=1 build/concha_ui_shot (message thread lateness per 50 ms tick).
 - Pattern threads rely on the 8 MB Linux default stack (QuickJS limit 6 MB): give them an explicit stack on Windows.

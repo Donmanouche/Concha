@@ -41,17 +41,18 @@ int main(int argc, char** argv)
     std::unique_ptr<juce::AudioProcessorEditor> editor(proc->createEditor());
     const int w = argc > 4 ? juce::String(argv[3]).getIntValue() : 1100, h = argc > 4 ? juce::String(argv[4]).getIntValue() : 680;
     editor->setSize(w, h);
-    // CONCHA_SHOT_SHADER=<out.png>: a real window (off screen) so OpenGL runs; the shader layer's
-    // last frame is written there (the snapshot below has no OpenGL)
+    // CONCHA_SHOT_GL=1: a real window (off screen) so OpenGL runs (shader, oscilloscope band); the
+    // snapshot is then drawn over OpenGL's last frame
     std::mutex shaderMutex;
     juce::Image shaderFrame;
-    const char* shaderOut = std::getenv("CONCHA_SHOT_SHADER");
+    const char* shaderOut = std::getenv("CONCHA_SHOT_GL");
     if (shaderOut) {
-        if (auto* ed = dynamic_cast<concha::ConchaEditor*>(editor.get()))
-            ed->onShaderFrame = [&](const juce::Image& img) {
+        if (auto* ed = dynamic_cast<concha::ConchaEditor*>(editor.get())) {
+            ed->onGLFrame = [&](const juce::Image& img) {
                 std::lock_guard<std::mutex> lock(shaderMutex);
                 shaderFrame = img.createCopy();
             };
+        }
         editor->setTopLeftPosition(-4000, -4000);
         editor->addToDesktop(juce::ComponentPeer::windowIsTemporary);
         editor->setVisible(true);
@@ -59,8 +60,59 @@ int main(int argc, char** argv)
     // let the engine start, evaluate, play a while: the message loop runs the editor's timer
     const int playMs = argc > 5 ? juce::String(argv[5]).getIntValue() : 2500;
     const juce::String outPath(argv[2]);
+    // CONCHA_SHOT_TYPING=1: while it plays, type into the code 20 times a second (live coding) and
+    // report how long each key and each tick of the message thread took
+    struct Typist final : juce::Timer {
+        juce::Component* root = nullptr;
+        concha::ui::CodeView* view = nullptr;
+        int n = 0;
+        double keyMs = 0, worstKeyMs = 0;
+        double lastTick = 0, worstGap = 0, gaps = 0;
+        int ticks = 0;
+        void timerCallback() override
+        {
+            const double now = juce::Time::getMillisecondCounterHiRes();
+            if (lastTick > 0) {
+                const double gap = now - lastTick - 50;
+                worstGap = std::max(worstGap, gap);
+                gaps += std::max(0.0, gap);
+                ++ticks;
+            }
+            lastTick = now;
+            if (!view) {
+                std::function<concha::ui::CodeView*(juce::Component*)> find = [&](juce::Component* c) -> concha::ui::CodeView* {
+                    if (auto* v = dynamic_cast<concha::ui::CodeView*>(c)) return v;
+                    for (auto* ch : c->getChildren())
+                        if (auto* v = find(ch)) return v;
+                    return nullptr;
+                };
+                view = find(root);
+                if (view) view->moveCaretToEnd(false);
+                return;
+            }
+            const char* text = " // live";
+            const juce::juce_wchar ch = text[n % 8];
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            view->keyPressed(juce::KeyPress(0, {}, ch));
+            const double dt = juce::Time::getMillisecondCounterHiRes() - t0;
+            keyMs += dt;
+            worstKeyMs = std::max(worstKeyMs, dt);
+            ++n;
+        }
+        ~Typist() override
+        {
+            if (n) std::fprintf(stderr, "typing: %d keys, %.2f ms per key (worst %.1f), message thread late %.1f ms per tick (worst %.0f)\n", n, keyMs / n,
+                                worstKeyMs, ticks ? gaps / ticks : 0.0, worstGap);
+        }
+    };
+    std::unique_ptr<Typist> typist;
     juce::Timer::callAfterDelay(1500, [&] {
         proc->evaluate(code);
+        if (std::getenv("CONCHA_SHOT_TYPING")) {
+            typist = std::make_unique<Typist>();
+            typist->root = editor.get();
+            typist->startTimer(50);
+        }
         juce::Timer::callAfterDelay(playMs, [&] {
             if (argc > 7) { // type into the code view (completion check)
                 std::function<concha::ui::CodeView*(juce::Component*)> find = [&](juce::Component* c) -> concha::ui::CodeView* {
@@ -82,21 +134,20 @@ int main(int argc, char** argv)
                     library->setSize(editor->getWidth(), editor->getHeight());
                 }
                 juce::Component& target = library ? static_cast<juce::Component&>(*library) : *editor;
-                const juce::Image shot = target.createComponentSnapshot(target.getLocalBounds(), true, 1.0f);
+                juce::Image shot = target.createComponentSnapshot(target.getLocalBounds(), true, 1.0f);
+                if (shaderOut && !library) { // OpenGL: the shader under the components
+                    std::lock_guard<std::mutex> lock(shaderMutex);
+                    juce::Image both(juce::Image::ARGB, shot.getWidth(), shot.getHeight(), true);
+                    juce::Graphics bg(both);
+                    if (shaderFrame.isValid()) bg.drawImage(shaderFrame, both.getBounds().toFloat());
+                    bg.drawImageAt(shot, 0, 0);
+                    shot = both;
+                }
                 juce::File out{outPath};
                 out.deleteFile();
                 juce::FileOutputStream os{out};
                 juce::PNGImageFormat().writeImageToStream(shot, os);
-                if (shaderOut) {
-                    std::lock_guard<std::mutex> lock(shaderMutex);
-                    juce::File sf{juce::String(shaderOut)};
-                    sf.deleteFile();
-                    if (shaderFrame.isValid()) {
-                        juce::FileOutputStream ss{sf};
-                        juce::PNGImageFormat().writeImageToStream(shaderFrame, ss);
-                    } else
-                        std::fprintf(stderr, "no shader frame\n");
-                }
+                typist.reset();
                 juce::MessageManager::getInstance()->stopDispatchLoop();
             });
         });

@@ -103,6 +103,7 @@ async function evaluate(code) {
   midiin.resetKeyboards();
   canvas.resetCanvases();
   visuals.resetShader();
+  visuals.resetVisuals();
   await instance.evaluate(code, false);
   if (lastError) return { ok: false, error: String(lastError?.message ?? lastError) };
   startPainters();
@@ -111,6 +112,7 @@ async function evaluate(code) {
     miniLocations: state.miniLocations ?? [],
     widgets: (state.widgets ?? []).map((w) => ({ type: w.type, from: w.from, to: w.to, value: w.value, canvas: getWidgetID(w) })),
     shader: visuals.takeShader() ?? '',
+    visuals: visuals.takeVisuals(),
     sliders: (state.sliders ?? []).map((s) => ({ from: s.from, to: s.to, value: String(s.value), min: s.min, max: s.max, step: s.step })),
   };
 }

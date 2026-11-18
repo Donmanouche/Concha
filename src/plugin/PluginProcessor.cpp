@@ -263,6 +263,22 @@ void ConchaProcessor::shaderAudio(std::vector<float>& spectrum, std::vector<floa
     }
 }
 
+int ConchaProcessor::uiAnalyser(const std::string& name, bool spectrum, std::vector<float>& out)
+{
+    const int id = sd::analyserSlot(name);
+    const int size = superdough_.analysers().read(id, nullptr, 0);
+    if (!size) return 0;
+    std::vector<float> time(static_cast<size_t>(size));
+    superdough_.analysers().read(id, time.data(), size);
+    if (!spectrum) {
+        out = std::move(time);
+        return size;
+    }
+    out.resize(size_t(size / 2));
+    sd::analyserFrequencyData(time.data(), size, 0.5, uiSmooth_[name], out.data());
+    return size;
+}
+
 void ConchaProcessor::evaluate(const juce::String& code)
 {
     setCode(code);

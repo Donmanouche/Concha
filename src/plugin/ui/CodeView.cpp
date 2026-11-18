@@ -216,8 +216,18 @@ void CodeView::setPlaying(const std::vector<Mark>& marks)
         for (const auto& m : marks)
             if (auto it = rangeIndex_.find({m.start, m.end}); it != rangeIndex_.end()) next.emplace_back(it->second, m.colour);
     if (next == playing_) return;
+    // only the lines of the outlines that change are painted again (not the whole code)
+    auto area = [&](size_t index) {
+        if (index >= ranges_.size() || !ranges_[index].from || !ranges_[index].to) return juce::Rectangle<int>();
+        const auto a = getCharacterBounds(*ranges_[index].from), b = getCharacterBounds(*ranges_[index].to);
+        return juce::Rectangle<int>(0, std::min(a.getY(), b.getY()) - 3, getWidth(), std::abs(b.getBottom() - a.getY()) + 6);
+    };
+    juce::RectangleList<int> dirty;
+    for (const auto& [i, c] : playing_) dirty.addWithoutMerging(area(i));
+    for (const auto& [i, c] : next) dirty.addWithoutMerging(area(i));
     playing_ = std::move(next);
-    repaint();
+    dirty.consolidate();
+    for (const auto& r : dirty) repaint(r);
 }
 
 void CodeView::flash()
@@ -274,26 +284,12 @@ void CodeView::addFrames(const std::vector<PatternWorker::Frame>& frames)
     if (changed) repaint();
 }
 
-void CodeView::setWidgets(const std::vector<WidgetInfo>& widgets)
-{
-    widgets_.clear();
-    const int size = doc_.getNumCharacters();
-    for (const auto& w : widgets) {
-        Widget x;
-        x.canvas = w.canvas;
-        x.to = std::make_unique<juce::CodeDocument::Position>(doc_, juce::jlimit(0, size, w.to));
-        x.to->setPositionMaintained(true);
-        widgets_.push_back(std::move(x));
-    }
-    repaint();
-}
-
 void CodeView::paint(juce::Graphics& g)
 {
     if (!shaderActive_) g.fillAll(theme::background);
     bool visuals = shaderActive_;
     for (const auto& [id, c] : canvases_)
-        if (c && c->drawn() && !isWidgetCanvas(id)) {
+        if (c && c->drawn()) {
             g.drawImage(c->image(), getLocalBounds().toFloat(), juce::RectanglePlacement::stretchToFit);
             visuals = true;
         }
@@ -311,54 +307,8 @@ void CodeView::paint(juce::Graphics& g)
         }
     }
     juce::CodeEditorComponent::paint(g);
-    paintWidgets(g);
 }
 
-bool CodeView::isWidgetCanvas(const std::string& id) const
-{
-    for (const auto& w : widgets_)
-        if (w.canvas == id) return true;
-    return id.find("_widget_") != std::string::npos;
-}
-
-// strudel.cc shows a widget under its line; JUCE's editor cannot open space between lines, so the
-// widgets stand in a column at the right of the code, each at its line's height (pushed down so they
-// do not overlap), scaled to the room left. With no room, they overlap the code's right side.
-void CodeView::paintWidgets(juce::Graphics& g)
-{
-    if (widgets_.empty()) return;
-    const float cw = getCharWidth();
-    const float right = float(getWidth() - getScrollbarThickness() - 8);
-    const int first = getFirstLineOnScreen(), count = getNumLinesOnScreen() + 1;
-    float codeRight = 0;
-    for (int l = first; l < first + count && l < doc_.getNumLines(); ++l) {
-        const int len = doc_.getLine(l).trimEnd().length();
-        if (len > 0)
-            codeRight = std::max(codeRight, float(getCharacterBounds(juce::CodeDocument::Position(doc_, l, 0)).getX()) + cw * float(len));
-    }
-    codeRight += 24.0f;
-    const bool column = right - codeRight >= 160.0f;
-    float bottom = -1e9f;
-    for (const auto& w : widgets_) {
-        auto it = canvases_.find(w.canvas);
-        if (it == canvases_.end() || !it->second || !it->second->drawn()) continue;
-        const Canvas2D& c = *it->second;
-        const float maxW = column ? right - codeRight : float(getWidth()) * 0.45f;
-        const float scale = std::min(1.0f, maxW / float(c.width()));
-        const float wpx = float(c.width()) * scale, hpx = float(c.height()) * scale;
-        float y = float(getCharacterBounds(*w.to).getY());
-        y = std::max(y, bottom + 6.0f);
-        bottom = y + hpx;
-        const float x = column ? codeRight : right - wpx;
-        if (y + hpx < 0 || y > float(getHeight())) continue;
-        const juce::Rectangle<float> r(x, y, wpx, hpx);
-        g.setColour(theme::background.withAlpha(column ? 0.6f : 0.85f));
-        g.fillRect(r);
-        g.drawImage(c.image(), r, juce::RectanglePlacement::stretchToFit);
-        g.setColour(theme::panelLine);
-        g.drawRect(r, 1.0f);
-    }
-}
 
 void CodeView::paintOverChildren(juce::Graphics& g)
 {
