@@ -187,3 +187,30 @@ TEST("cssColour: hsl and transparent")
     CHECK(c.getGreen() == 255 && c.getRed() == 0 && c.getBlue() == 0);
     CHECK(concha::ui::cssColour("hsla(0 100% 50% / 0.5)", juce::Colours::black).getAlpha() == 128);
 }
+
+TEST("code view: a slider follows its call when the code scrolls (lines and columns)")
+{
+    juce::CodeDocument doc;
+    juce::String code;
+    for (int i = 0; i < 40; ++i) code << "// line " << i << "\n";
+    code << "note(\"c3\").lpf(slider(1200, 100, 4000))\n";
+    doc.replaceAllContent(code);
+    JsTokeniser tok;
+    CodeView view(doc, tok);
+    view.setSize(300, 200);
+    const int from = doc.getAllContent().indexOf("1200");
+    view.setSliders({{from, from + 4, "1200", 100, 4000, 0}});
+    auto* slider = findSlider(view);
+    CHECK(slider != nullptr);
+    if (!slider) return;
+    auto callAt = [&] { return view.getCharacterBounds(juce::CodeDocument::Position(doc, doc.getAllContent().indexOf("slider("))); };
+    view.scrollToLine(30); // the call comes into view
+    CHECK(slider->isVisible() && slider->getX() == callAt().getX() && slider->getY() == callAt().getY());
+    view.scrollToLine(32);
+    CHECK(slider->getY() == callAt().getY());
+    view.scrollToColumn(10);
+    view.followScroll(); // (the window's timer does it)
+    CHECK(slider->getX() == callAt().getX());
+    view.scrollToLine(0); // out of view: hidden
+    CHECK(!slider->isVisible());
+}

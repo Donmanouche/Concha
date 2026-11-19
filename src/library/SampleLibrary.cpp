@@ -84,12 +84,18 @@ std::string urlDecode(const std::string& s)
 }
 
 // Strudel sound name of a folder: lower case, spaces as underscores.
-// a sound's name from a folder or file name: spaces become _, the case is kept (lookups ignore it)
+// a sound's name from a folder or file name, writable in mini-notation: letters, digits, _ - . are
+// kept (with their case: lookups ignore it), anything else becomes one _ ("Strings & Things" ->
+// Strings_Things)
 std::string soundName(const std::string& folder)
 {
-    std::string s = folder;
-    for (auto& c : s)
-        if (std::isspace((unsigned char)c)) c = '_';
+    std::string s;
+    for (unsigned char c : folder) {
+        const bool keep = std::isalnum(c) || c == '_' || c == '-' || c == '.' || c >= 0x80; // (UTF-8 letters kept)
+        if (keep) s += char(c);
+        else if (!s.empty() && s.back() != '_') s += '_';
+    }
+    while (!s.empty() && s.back() == '_') s.pop_back();
     return s;
 }
 
@@ -281,23 +287,32 @@ std::string SampleLibrary::scanFolder(const std::string& path, const std::string
         for (const auto& f : files) addSound(libName + "_" + soundName(f.stem().string()), {f});
     }
     // a bank (tidal-drum-machines): Bank/Bank_bd, Bank/bank-bd... -> Bank_bd, .bank("Bank")
-    auto bankEntries = [&](const fs::path& dir) {
+    auto bankEntries = [&](const fs::path& dir, const std::string& otherName) {
         std::vector<std::pair<std::string, fs::path>> entries;
-        const std::string bank = lower(dir.filename().string());
         for (const auto& sub : sortedDirs(dir)) {
             const std::string n = lower(sub.filename().string());
-            for (const std::string& prefix : {bank + "_", bank + "-", bank + " "})
-                if (n.rfind(prefix, 0) == 0 && n.size() > prefix.size() && !sortedAudio(sub).empty())
-                    entries.emplace_back(sub.filename().string().substr(prefix.size()), sub);
+            for (const std::string& bank : {lower(dir.filename().string()), lower(otherName)}) {
+                if (bank.empty()) continue;
+                bool found = false;
+                for (const std::string& prefix : {bank + "_", bank + "-", bank + " "})
+                    if (!found && n.rfind(prefix, 0) == 0 && n.size() > prefix.size() && !sortedAudio(sub).empty()) {
+                        entries.emplace_back(sub.filename().string().substr(prefix.size()), sub);
+                        found = true;
+                    }
+                if (found) break;
+            }
         }
         return entries;
     };
+    // the folder itself is a bank (AkaiLinn/akailinn-bd...): <Name>_bd, so .bank("<Name>") works
+    const auto rootBank = bankEntries(root, name);
+    for (const auto& [sound, folder] : rootBank) addSound(libName + "_" + soundName(sound), sortedAudio(folder));
     // every folder below, at any depth: a sound named after it (Dirt-Samples), also <name>_<folder>
     std::function<void(const fs::path&, int)> walk = [&](const fs::path& dir, int depth) {
         if (depth > 12) return;
         for (const auto& sub : sortedDirs(dir)) {
             const std::string subName = soundName(sub.filename().string());
-            const auto bank = bankEntries(sub);
+            const auto bank = bankEntries(sub, "");
             if (!bank.empty()) {
                 for (const auto& [sound, folder] : bank) addSound(subName + "_" + soundName(sound), sortedAudio(folder));
                 for (const auto& other : sortedDirs(sub)) { // what is not a bank entry is walked as usual
@@ -317,7 +332,20 @@ std::string SampleLibrary::scanFolder(const std::string& path, const std::string
             walk(sub, depth + 1);
         }
     };
-    walk(root, 0);
+    if (rootBank.empty()) walk(root, 0);
+    else // what is not a bank entry is walked as usual
+        for (const auto& other : sortedDirs(root)) {
+            bool entry = false;
+            for (const auto& e : rootBank) entry = entry || e.second == other;
+            if (!entry) {
+                if (auto files = sortedAudio(other); !files.empty()) {
+                    const std::string n = soundName(other.filename().string());
+                    addSound(n, files);
+                    addSound(libName + "_" + n, files);
+                }
+                walk(other, 1);
+            }
+        }
     if (sounds.empty()) {
         if (error) *error = "no audio files in " + path;
         return {};

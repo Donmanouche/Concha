@@ -201,7 +201,7 @@ void LibraryPanel::addFolder()
                           [this](const juce::FileChooser& fc) {
                               const auto dir = fc.getResult();
                               if (!dir.isDirectory()) return;
-                              std::string name = dir.getFileName().removeCharacters(" '\"").toStdString();
+                              std::string name = dir.getFileName().retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-").toStdString(); // usable in code
                               if (name.empty()) name = "samples";
                               // unique name
                               std::string unique = name;

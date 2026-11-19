@@ -215,6 +215,7 @@ void CodeView::setSliders(const std::vector<SliderInfo>& sliders)
         sl.setValue(std::strtod(info.value.toRawUTF8(), nullptr), juce::dontSendNotification); // (".5": not getDoubleValue)
         sl.setTooltip("slider(" + info.value + ", " + juce::String(info.min) + ", " + juce::String(info.max) + ")");
         sl.setWantsKeyboardFocus(false);
+        sl.setScrollWheelEnabled(false); // the wheel scrolls the code, even over a slider
         sl.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
         const size_t index = sliders_.size();
         sl.onValueChange = [this, index] {
@@ -245,8 +246,16 @@ void CodeView::setSliders(const std::vector<SliderInfo>& sliders)
     layoutSliders();
 }
 
+void CodeView::followScroll()
+{
+    if (sliders_.empty()) return;
+    const auto at = getCharacterBounds(juce::CodeDocument::Position(doc_, 0, 0)).getPosition();
+    if (at != scrollMark_) layoutSliders();
+}
+
 void CodeView::layoutSliders()
 {
+    scrollMark_ = getCharacterBounds(juce::CodeDocument::Position(doc_, 0, 0)).getPosition();
     const juce::String all = doc_.getAllContent();
     for (auto& s : sliders_) {
         // the call: from `slider(` to its closing parenthesis, on one line

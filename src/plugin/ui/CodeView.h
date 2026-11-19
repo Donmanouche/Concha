@@ -48,6 +48,9 @@ public:
         double min = 0, max = 1, step = 0;
     };
     void setSliders(const std::vector<SliderInfo>& sliders);
+    // the sliders follow the text when the view scrolled, whichever way (JUCE tells subclasses only
+    // about vertical scrolling): called by the window's timer
+    void followScroll();
     std::function<void(const juce::String& id, double value)> onSlider;
     void flash();
 
@@ -104,7 +107,8 @@ private:
         std::unique_ptr<juce::Slider> slider;
     };
     std::vector<InlineSlider> sliders_;
-    bool movingSlider_ = false; // a slider rewrites its value: laid out at once, no deferred pass
+    bool movingSlider_ = false;
+    juce::Point<int> scrollMark_; // where line 0, column 0 was when the sliders were laid out // a slider rewrites its value: laid out at once, no deferred pass
 
     std::map<std::string, std::unique_ptr<Canvas2D>> canvases_;
     uint32_t canvasGeneration_ = 0;

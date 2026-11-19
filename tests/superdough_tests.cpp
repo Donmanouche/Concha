@@ -477,6 +477,18 @@ TEST("library: a named folder of any depth: Name_file, nested folders, banks any
     CHECK(json.find("\"other_kicks\":[\"other/kicks/x.wav\"]") != std::string::npos);   // the second "kicks"
     CHECK(json.find("notes.txt") == std::string::npos);
     fs::remove_all(root.parent_path());
+
+    // the folder itself is a bank (AkaiLinn/akailinn-bd...), names with signs mini-notation cannot write
+    const fs::path bank = fs::temp_directory_path() / "concha_lib_test3" / "AkaiLinn";
+    for (const char* f : {"akailinn-bd/Kick.wav", "akailinn-sd/Snare.wav", "Strings & Things (old)/a.wav"}) {
+        fs::create_directories((bank / f).parent_path());
+        writeWav(bank / f, z, 48000);
+    }
+    const std::string j3 = lib::SampleLibrary::scanFolder(bank.string(), "AkaiLinn", &err);
+    CHECK(j3.find("\"AkaiLinn_bd\":[\"akailinn-bd/Kick.wav\"]") != std::string::npos); // .bank("AkaiLinn")
+    CHECK(j3.find("\"AkaiLinn_sd\"") != std::string::npos);
+    CHECK(j3.find("\"Strings_Things_old\"") != std::string::npos); // & ( ) and spaces: one _
+    fs::remove_all(bank.parent_path());
 }
 
 int main() { return RUN_TESTS(); }

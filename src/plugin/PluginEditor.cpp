@@ -393,6 +393,7 @@ void ConchaEditor::timerCallback()
             for (const auto& [a, b] : h.locations) marks.push_back({a, b, c});
         }
     code_.setPlaying(marks);
+    code_.followScroll(); // sliders over their call, whichever way the code scrolled
     // Strudel's visuals: the code view's size, the frames drawn since the last tick
     proc_.setVisuals(true, code_.getWidth(), code_.getHeight(), 1.0); // the editor exists while its window is open
     {
