@@ -26,9 +26,33 @@ export function getFrequencyFromValue(value, defaultNote = 36) {
 
 const soundMap = new Map(); // name (lower case) -> { type, bank?, data }
 
+// keys are looked up without case (Strudel's); the name as written is kept for the list of sounds
 export function registerSound(key, type, data = {}) {
-  key = String(key).toLowerCase().replace(/\s+/g, '_');
-  soundMap.set(key, { type, ...data });
+  const name = String(key).replace(/\s+/g, '_');
+  key = name.toLowerCase();
+  soundMap.set(key, { type, name, ...data });
+  if (libraryLoading) librarySounds.add(key);
+}
+
+// the sounds of Concha's library folders: forgotten when the folders change (removed, renamed)
+let libraryLoading = false;
+const librarySounds = new Set();
+export function loadLibraryFolders(names) {
+  for (const key of librarySounds) soundMap.delete(key);
+  librarySounds.clear();
+  libraryLoading = true;
+  try {
+    for (const name of names) {
+      const report = (e) => globalThis.__conchaLog.push({ message: `[library] ${name}: ${e?.message ?? e}`, type: 'error' });
+      try {
+        samples('lib:' + name)?.catch?.(report); // (samples() is async: its errors come as a rejection)
+      } catch (e) {
+        report(e);
+      }
+    }
+  } finally {
+    libraryLoading = false;
+  }
 }
 
 export function getSound(s) {
@@ -192,7 +216,7 @@ export function soundAlias(original, alias) {
   soundMap.set(String(alias).toLowerCase(), s);
 }
 
-export const soundNames = () => [...soundMap.keys()];
+export const soundNames = () => [...soundMap.entries()].map(([key, s]) => s.name ?? key);
 
 // ---- query time ----
 

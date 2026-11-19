@@ -79,7 +79,8 @@ PatternWorker::Options ConchaProcessor::workerOptions(lib::LibraryHost& host)
     return o;
 }
 
-void ConchaProcessor::reloadLibrary() { worker_.requestEvaluate(code().toStdString()); }
+// the sample / SynthDef folders changed: their sounds in the playing code, without evaluating it
+void ConchaProcessor::reloadLibrary() { worker_.requestLibraryRefresh(); }
 
 juce::AudioProcessorValueTreeState::ParameterLayout ConchaProcessor::createLayout()
 {

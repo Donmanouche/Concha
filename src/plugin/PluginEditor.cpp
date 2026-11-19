@@ -376,8 +376,12 @@ void ConchaEditor::timerCallback()
         if (info.shader.empty() && gl_.isAttached()) gl_.detach();
         code_.setShaderActive(!info.shader.empty());
         uniformOnsets_.clear();
+    }
+    // the known sounds: after an evaluation, or when the sample folders changed
+    if (s.soundsVersion != shownSounds_) {
+        shownSounds_ = s.soundsVersion;
         juce::StringArray names;
-        for (const auto& n : info.soundNames) names.add(juce::String::fromUTF8(n.c_str()));
+        for (const auto& n : proc_.activeCodeInfo().soundNames) names.add(juce::String::fromUTF8(n.c_str()));
         sounds_->setSounds(names);
     }
     // the haps playing now (highlight.mjs: outline in hap.value.color or the foreground)

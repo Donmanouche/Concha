@@ -677,3 +677,54 @@ TEST("io: serial bytes reach the port (a pseudo-terminal)")
     CHECK(got.size() == 10 && got[6] == 0x7c && got[9] == 0x3b);
     ::close(master);
 }
+
+// ---- the library's folders: their sounds follow without evaluating the code ----
+#include "library/LibraryHost.h"
+
+#include <filesystem>
+#include <fstream>
+
+TEST("library refresh: a folder added or removed changes the known sounds, the code keeps playing")
+{
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / ("concha_refresh_" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    fs::create_directories(dir / "config");
+    fs::create_directories(dir / "Breakk2489");
+    std::ofstream(dir / "Breakk2489" / "yoyo.wav") << "RIFF"; // listed, not decoded
+    auto& library = lib::SampleLibrary::instance();
+    library.setDirectories((dir / "config").string(), (dir / "cache").string()); // never the user's settings
+    lib::LibraryHost host(library);
+    SpscRing<SchedEvent> ring{4096};
+    SeqLock<TransportState> transport;
+    SeqLock<SwapPoint> swap;
+    PatternWorker::Options o;
+    o.period = std::chrono::milliseconds(1);
+    o.engine.host = &host;
+    o.library = &library;
+    PatternWorker worker(ring, transport, swap, o);
+    worker.start();
+    worker.requestEvaluate(R"(note("c3").s("sine"))");
+    auto has = [&](const std::string& name) {
+        for (const auto& n : worker.activeCodeInfo().soundNames)
+            if (n == name) return true;
+        return false;
+    };
+    for (int i = 0; i < 2000 && worker.status().activeCode.empty(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    const uint64_t evaluations = worker.status().evaluations;
+    CHECK(!has("BreaksCool_yoyo"));
+    library.setFolders({{"BreaksCool", (dir / "Breakk2489").string(), true}});
+    uint32_t version = worker.status().soundsVersion;
+    worker.requestLibraryRefresh();
+    for (int i = 0; i < 1000 && worker.status().soundsVersion == version; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    CHECK(has("BreaksCool_yoyo") && has("BreaksCool"));
+    library.setFolders({});
+    version = worker.status().soundsVersion;
+    worker.requestLibraryRefresh();
+    for (int i = 0; i < 1000 && worker.status().soundsVersion == version; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    CHECK(!has("BreaksCool_yoyo"));
+    CHECK(worker.status().evaluations == evaluations); // the code was not evaluated again
+    worker.stop();
+    library.setDirectories((dir / "config").string(), (dir / "cache").string());
+    fs::remove_all(dir);
+}

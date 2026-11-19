@@ -97,12 +97,14 @@ private:
     juce::String lastWord_;
     std::unique_ptr<Completion> completion_;
     struct InlineSlider {
-        std::unique_ptr<juce::CodeDocument::Position> from;
+        std::unique_ptr<juce::CodeDocument::Position> from; // the value's text
+        std::unique_ptr<juce::CodeDocument::Position> call; // the start of `slider(`: the widget covers the call
         int originalFrom = 0, length = 0;
         double step = 0.001;
         std::unique_ptr<juce::Slider> slider;
     };
     std::vector<InlineSlider> sliders_;
+    bool movingSlider_ = false; // a slider rewrites its value: laid out at once, no deferred pass
 
     std::map<std::string, std::unique_ptr<Canvas2D>> canvases_;
     uint32_t canvasGeneration_ = 0;

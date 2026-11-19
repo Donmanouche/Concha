@@ -9,13 +9,16 @@
 //  - sample loading: requestSample(url) returns an id at once, a loader thread decodes the file
 //    and publishes it to the SampleStore the audio thread reads.
 //
-// Folder layout (scanFolder):
+// Folder layout (scanFolder), <Name> being the name given to the folder:
 //  - a strudel.json at the root is used as is (paths relative to the folder);
-//  - each sub-folder with audio files is a sound, named after the folder (Dirt-Samples layout);
-//  - a sub-folder that only holds sub-folders is a bank: Bank/bank-bd/*.wav -> sound "Bank_bd"
-//    (the tidal-drum-machines layout, so .bank("Bank") works);
-//  - audio files at the root are one sound named after the folder's library name;
-//  - every sound is also registered as <name>_<sound>, so .bank("<name>") works.
+//  - the audio files at the root: <Name> (n picks the file) and each file as <Name>_<file name>
+//    (yoyo.wav in "BreaksCool" -> BreaksCool_yoyo);
+//  - every folder below, at any depth, with audio files: a sound named after the folder, n picking the
+//    file (Dirt-Samples layout), also <Name>_<folder> so that .bank("<Name>") works; a folder name met
+//    twice takes its parent's name: <parent>_<folder>;
+//  - a bank, at any depth: a folder whose sub-folders are named <Bank>_<sound> / <Bank>-<sound>
+//    (tidal-drum-machines layout) -> <Bank>_<sound>, so .bank("<Bank>") works.
+//  Names keep their case (lookups ignore it), spaces become _.
 
 #include "library/Soundfont.h"
 #include "superdough/SampleStore.h"

@@ -443,14 +443,40 @@ TEST("library: folder layouts become sample maps")
     CHECK(json.find("\"bd\":[\"bd/a.wav\",\"bd/b.wav\"]") != std::string::npos); // sorted, Dirt-Samples layout
     CHECK(json.find("\"MyKit_sd\":[\"MyKit/mykit-sd/snare.wav\"]") != std::string::npos); // bank layout
     CHECK(json.find("hat%201.wav") != std::string::npos);                                // URL-encoded
-    CHECK(json.find("\"lib\":[\"loose.wav\"]") != std::string::npos);                   // root files
-    CHECK(json.find("\"lib_bd\"") != std::string::npos);                                // .bank("Lib")
+    CHECK(json.find("\"Lib\":[\"loose.wav\"]") != std::string::npos);                   // root files
+    CHECK(json.find("\"Lib_loose\":[\"loose.wav\"]") != std::string::npos);             // each by its name
+    CHECK(json.find("\"Lib_bd\"") != std::string::npos);                                // .bank("Lib")
     CHECK(json.find("\"_base\":\"file://") != std::string::npos);
     // strudel.json wins
     std::ofstream(root / "strudel.json") << "{\"kick\": [\"bd/a.wav\"]}";
     const std::string j2 = lib::SampleLibrary::scanFolder(root.string(), "Lib", &err);
     CHECK(j2.find("\"kick\"") != std::string::npos && j2.find("\"_base\"") != std::string::npos);
     fs::remove_all(root);
+}
+
+TEST("library: a named folder of any depth: Name_file, nested folders, banks anywhere, twins")
+{
+    const fs::path root = fs::temp_directory_path() / "concha_lib_test2" / "Breakk2489";
+    fs::remove_all(root.parent_path());
+    std::vector<float> z(10, 0.f);
+    for (const char* f : {"yoyo.wav", "Zap Zap.wav", "kicks/k2.wav", "kicks/k1.wav", "deep/nested/snares/s1.wav",
+                          "vintage/TR909/TR909_bd/a.wav", "vintage/TR909/tr909-sd/b.wav", "other/kicks/x.wav", "notes.txt"}) {
+        fs::create_directories((root / f).parent_path());
+        writeWav(root / f, z, 48000);
+    }
+    std::string err;
+    const std::string json = lib::SampleLibrary::scanFolder(root.string(), "BreaksCool", &err);
+    CHECK(json.find("\"BreaksCool_yoyo\":[\"yoyo.wav\"]") != std::string::npos);        // the user's example
+    CHECK(json.find("\"BreaksCool_Zap_Zap\":") != std::string::npos);                     // spaces become _
+    CHECK(json.find("\"BreaksCool\":[\"yoyo.wav\",\"Zap%20Zap.wav\"]") != std::string::npos); // sorted without case
+    CHECK(json.find("\"kicks\":[\"kicks/k1.wav\",\"kicks/k2.wav\"]") != std::string::npos); // n: sorted
+    CHECK(json.find("\"BreaksCool_kicks\"") != std::string::npos);                        // .bank("BreaksCool")
+    CHECK(json.find("\"snares\":[\"deep/nested/snares/s1.wav\"]") != std::string::npos); // any depth
+    CHECK(json.find("\"TR909_bd\":[\"vintage/TR909/TR909_bd/a.wav\"]") != std::string::npos); // a bank, deep
+    CHECK(json.find("\"TR909_sd\":") != std::string::npos);
+    CHECK(json.find("\"other_kicks\":[\"other/kicks/x.wav\"]") != std::string::npos);   // the second "kicks"
+    CHECK(json.find("notes.txt") == std::string::npos);
+    fs::remove_all(root.parent_path());
 }
 
 int main() { return RUN_TESTS(); }

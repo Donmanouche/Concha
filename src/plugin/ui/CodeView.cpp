@@ -153,6 +153,39 @@ void CodeView::setMiniLocations(const std::vector<std::pair<int, int>>& ranges)
     repaint();
 }
 
+namespace {
+// strudel.cc's slider in the code: it stands over the `slider(...)` text (the editor cannot open space in
+// a line), opaque, with its value written in it
+class CodeSlider final : public juce::Slider {
+public:
+    CodeSlider() : juce::Slider(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox) { setOpaque(true); }
+    juce::String text;
+    float fontSize = 14;
+    void paint(juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setColour(theme::background);
+        g.fillRect(r);
+        g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), fontSize * 0.8f, juce::Font::plain)));
+        const float textW = juce::jmin(r.getWidth() * 0.45f, float(text.length()) * fontSize * 0.55f + 4.0f);
+        auto label = r.removeFromRight(textW);
+        g.setColour(theme::number);
+        g.drawText(text, label, juce::Justification::centredRight, false);
+        r.removeFromRight(4);
+        const float cy = r.getCentreY();
+        const double span = getMaximum() - getMinimum();
+        const float pos = float(span > 0 ? (getValue() - getMinimum()) / span : 0);
+        g.setColour(theme::panelLine.brighter(0.4f));
+        g.fillRoundedRectangle(r.getX() + 2, cy - 1.5f, r.getWidth() - 4, 3, 1.5f);
+        g.setColour(theme::accent.withAlpha(0.8f));
+        g.fillRoundedRectangle(r.getX() + 2, cy - 1.5f, (r.getWidth() - 4) * pos, 3, 1.5f);
+        const float x = r.getX() + 2 + (r.getWidth() - 4) * pos;
+        g.setColour(theme::accent);
+        g.fillEllipse(x - 5, cy - 5, 10, 10);
+    }
+};
+} // namespace
+
 void CodeView::setSliders(const std::vector<SliderInfo>& sliders)
 {
     for (auto& s : sliders_) removeChildComponent(s.slider.get());
@@ -163,10 +196,20 @@ void CodeView::setSliders(const std::vector<SliderInfo>& sliders)
         InlineSlider s;
         s.from = std::make_unique<juce::CodeDocument::Position>(doc_, info.from);
         s.from->setPositionMaintained(true);
+        { // `slider(` before the value, on its line
+            const int lineStart = juce::CodeDocument::Position(doc_, info.from).movedBy(0).getLineNumber();
+            const int start = juce::CodeDocument::Position(doc_, lineStart, 0).getPosition();
+            const juce::String before = doc_.getTextBetween(juce::CodeDocument::Position(doc_, start), juce::CodeDocument::Position(doc_, info.from));
+            const int k = before.lastIndexOf("slider(");
+            s.call = std::make_unique<juce::CodeDocument::Position>(doc_, k >= 0 ? start + k : info.from);
+            s.call->setPositionMaintained(true);
+        }
         s.originalFrom = info.from;
         s.length = info.to - info.from;
         s.step = info.step > 0 ? info.step : (info.max - info.min) / 1000.0;
-        s.slider = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
+        auto cs = std::make_unique<CodeSlider>();
+        cs->text = info.value;
+        s.slider = std::move(cs);
         auto& sl = *s.slider;
         sl.setRange(std::min(info.min, info.max), std::max(info.min, info.max), 0);
         sl.setValue(std::strtod(info.value.toRawUTF8(), nullptr), juce::dontSendNotification); // (".5": not getDoubleValue)
@@ -183,10 +226,17 @@ void CodeView::setSliders(const std::vector<SliderInfo>& sliders)
             const int decimals = juce::jlimit(0, 8, int(std::ceil(-std::log10(step > 0 ? step : 0.001)) + 0.5));
             juce::String text(v, decimals);
             if (text.containsChar('.')) text = text.trimCharactersAtEnd("0").trimCharactersAtEnd(".");
+            if (auto* cs = dynamic_cast<CodeSlider*>(is.slider.get())) cs->text = text;
             const int start = is.from->getPosition();
-            doc_.replaceSection(start, start + is.length, text);
-            is.from->setPosition(start); // (an insertion at a position pushes it)
-            is.length = text.length();
+            if (doc_.getTextBetween(*is.from, is.from->movedBy(is.length)) != text) {
+                movingSlider_ = true;
+                doc_.replaceSection(start, start + is.length, text);
+                is.from->setPosition(start); // (an insertion at a position pushes it)
+                is.length = text.length();
+                movingSlider_ = false;
+                layoutSliders();
+            }
+            is.slider->repaint();
             if (onSlider) onSlider("slider_" + juce::String(is.originalFrom), v);
         };
         addAndMakeVisible(sl);
@@ -197,15 +247,26 @@ void CodeView::setSliders(const std::vector<SliderInfo>& sliders)
 
 void CodeView::layoutSliders()
 {
-    std::map<int, int> onLine; // sliders already placed on each line: side by side
+    const juce::String all = doc_.getAllContent();
     for (auto& s : sliders_) {
-        const int line = s.from->getLineNumber();
-        const int k = onLine[line]++;
-        const auto end = getCharacterBounds(juce::CodeDocument::Position(doc_, line, std::numeric_limits<int>::max()));
-        const int h = juce::jmax(10, getLineHeight() - 4);
-        const juce::Rectangle<int> r(end.getRight() + 12 + k * 72, end.getY() + (getLineHeight() - h) / 2, 64, h); // 64 px, as slider.mjs
+        // the call: from `slider(` to its closing parenthesis, on one line
+        const int valueEnd = s.from->getPosition() + s.length;
+        int end = valueEnd, depth = 1;
+        for (int i = valueEnd; i < all.length() && all[i] != '\n'; ++i) {
+            if (all[i] == '(') ++depth;
+            if (all[i] == ')' && --depth == 0) {
+                end = i + 1;
+                break;
+            }
+        }
+        const juce::CodeDocument::Position callStart = s.call && s.call->getLineNumber() == s.from->getLineNumber() ? *s.call : *s.from;
+        const auto a = getCharacterBounds(callStart);
+        const auto b = getCharacterBounds(juce::CodeDocument::Position(doc_, std::max(end, valueEnd)));
+        const int w = b.getY() == a.getY() ? juce::jmax(24, b.getX() - a.getX()) : 64;
+        const juce::Rectangle<int> r(a.getX(), a.getY(), w, getLineHeight());
+        if (auto* cs = dynamic_cast<CodeSlider*>(s.slider.get())) cs->fontSize = float(getLineHeight()) * 0.85f;
         s.slider->setBounds(r);
-        s.slider->setVisible(r.getBottom() > 0 && r.getY() < getHeight() && r.getX() < getWidth() - 20);
+        s.slider->setVisible(r.getBottom() > 0 && r.getY() < getHeight() && r.getRight() > 0 && r.getX() < getWidth());
     }
 }
 
@@ -466,7 +527,7 @@ bool CodeView::keyPressed(const juce::KeyPress& key)
 
 void CodeView::codeDocumentTextInserted(const juce::String& newText, int)
 {
-    if (!sliders_.empty())
+    if (!sliders_.empty() && !movingSlider_)
         juce::MessageManager::callAsync([safe = juce::Component::SafePointer<CodeView>(this)] {
             if (safe) safe->layoutSliders();
         });
@@ -482,7 +543,7 @@ void CodeView::codeDocumentTextInserted(const juce::String& newText, int)
 
 void CodeView::codeDocumentTextDeleted(int, int)
 {
-    if (!sliders_.empty())
+    if (!sliders_.empty() && !movingSlider_)
         juce::MessageManager::callAsync([safe = juce::Component::SafePointer<CodeView>(this)] {
             if (safe) safe->layoutSliders();
         });

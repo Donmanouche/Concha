@@ -59,6 +59,7 @@ public:
         double worstQueryMs = 0.0;
         uint64_t droppedEvents = 0;   // ring full or sysex too long
         uint32_t activeGeneration = 0; // changes with each new code (activeCodeInfo())
+        uint32_t soundsVersion = 0;    // changes when the known sounds change (activeCodeInfo().soundNames)
     };
 
     // For the editor, after each new code: its mini-notation ranges, sliders, the known sounds.
@@ -118,6 +119,9 @@ public:
 
     // Any thread. The latest request wins if several arrive during an evaluation.
     void requestEvaluate(std::string code);
+    // The sample / SynthDef folders changed: their sounds again in the playing code, without
+    // evaluating it (the list of sounds follows). Any thread.
+    void requestLibraryRefresh();
 
     Status status() const;
     std::vector<LogMessage> takeLog();
@@ -166,6 +170,8 @@ private:
     std::vector<EvalResult::Slider> standbySliders_;
     std::vector<EvalResult::Widget> standbyWidgets_;
     std::string standbyShader_;
+    std::atomic<bool> libraryRefresh_{false};
+    void refreshLibrary();
     EvalResult::Visuals standbyVisuals_;
     void runChannelQueries(const TransportState& t);
     std::mutex channelMutex_;

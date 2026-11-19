@@ -104,7 +104,7 @@ private:
     std::unique_ptr<LibraryPanel> library_;
     bool panelOpen_ = true;
 
-    uint32_t shownGeneration_ = UINT32_MAX;
+    uint32_t shownGeneration_ = UINT32_MAX, shownSounds_ = UINT32_MAX;
     juce::String syncedCode_; // the processor's code as this editor last wrote or read it
     int ticks_ = 0;
 };

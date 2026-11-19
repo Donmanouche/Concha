@@ -70,6 +70,37 @@ void PatternWorker::stop()
     if (visualThread_.joinable()) visualThread_.join();
 }
 
+void PatternWorker::requestLibraryRefresh() { libraryRefresh_.store(true); }
+
+// On the query thread, with the playing engine: the library's sounds (concha.refreshLibrary), the
+// user's SynthDefs; the standby engine catches up at its next evaluation (versions).
+void PatternWorker::refreshLibrary()
+{
+    PatternEngine& engine = *engines_[active_];
+    if (options_.library) {
+        for (auto& m : sc::loadUserSynthDefFolders(options_.library->synthDefFolders()))
+            log(m.rfind("loaded", 0) == 0 ? "info" : "warning", std::move(m));
+        const int n = sc::scDefCount();
+        if (n != registeredDefs_[active_]) {
+            if (options_.onNewSynthDefs) options_.onNewSynthDefs();
+            registerSuperDirtSynths(engine);
+            registeredDefs_[active_] = n;
+        }
+    }
+    std::string json;
+    if (!engine.evalJson("concha.refreshLibrary()", json)) return;
+    std::vector<std::string> names;
+    for (size_t i = 0; (i = json.find('"', i)) != std::string::npos;) {
+        const size_t j = json.find('"', i + 1);
+        if (j == std::string::npos) break;
+        names.push_back(json.substr(i + 1, j - i - 1));
+        i = j + 1;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    activeInfo_.soundNames = std::move(names);
+    ++status_.soundsVersion;
+}
+
 void PatternWorker::requestEvaluate(std::string code)
 {
     {
@@ -147,6 +178,7 @@ void PatternWorker::queryLoop()
                 activeInfo_.visuals = standbyVisuals_;
                 activeInfo_.blocks = parseBlocks(standbyCode_);
                 activeInfo_.soundNames = standbySounds_;
+                ++status_.soundsVersion;
                 swapped = true;
             }
         }
@@ -180,6 +212,7 @@ void PatternWorker::queryLoop()
         }
 
         runQueries(t);
+        if (libraryRefresh_.exchange(false)) refreshLibrary();
         playMidiNotes(t);
         flushExternals(t);
         runChannelQueries(t);

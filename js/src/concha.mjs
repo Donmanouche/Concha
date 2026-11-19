@@ -87,13 +87,14 @@ function autoloadLibrary() {
   const { version, names } = JSON.parse(globalThis.__concha_library_autoload());
   if (version === libraryVersion) return;
   libraryVersion = version;
-  for (const name of names) {
-    try {
-      sounds.samples('lib:' + name);
-    } catch (e) {
-      globalThis.__conchaLog.push({ message: `[library] ${name}: ${e?.message ?? e}`, type: 'error' });
-    }
-  }
+  sounds.loadLibraryFolders(names); // the folders' sounds again, without those of removed folders
+}
+
+// the library changed (a folder added, removed, renamed): its sounds again, without evaluating the
+// code; returns the known sounds' names
+function refreshLibrary() {
+  autoloadLibrary();
+  return sounds.soundNames();
 }
 
 async function evaluate(code) {
@@ -201,6 +202,7 @@ globalThis.concha = {
   log,
   setSlider,
   soundNames: sounds.soundNames,
+  refreshLibrary,
   registerSuperDirtSynths: sounds.registerSuperDirtSynths,
   registerSynthControls,
   pushKey: midiin.pushKey,
