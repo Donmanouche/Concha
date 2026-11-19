@@ -40,6 +40,13 @@ public:
     // Interface zoom (Settings, Ctrl + = / - / 0): `setting` 0 = auto (the system's scale), else 1..2.5.
     // Saved for the computer (ui::saveZoomSetting), not in the project.
     void setZoomSetting(double setting, bool save = true);
+    // For tools (concha_ui_shot): the sample folders' panel, opened
+    LibraryPanel* openFolders()
+    {
+        if (!library_) showFolders();
+        return library_.get();
+    }
+    void closeFolders() { library_.reset(); }
     double zoom() const { return zoom_; }
 
     // For tools (concha_ui_shot): what OpenGL drew (shader, oscilloscope band) under the components,

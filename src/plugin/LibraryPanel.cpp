@@ -117,9 +117,15 @@ void LibraryPanel::rebuild()
                 commit();
             }
         };
-        row->path.setText(juce::String::fromUTF8(folders_[i].path.c_str()), juce::dontSendNotification);
-        row->path.setColour(juce::Label::textColourId, kDim);
-        row->path.setTooltip(row->path.getText());
+        { // the path, and what the folder gives: its sounds, or why none
+            std::string error;
+            const int count = lib::SampleLibrary::instance().folderSoundCount(folders_[i].name, error);
+            const juce::String path = juce::String::fromUTF8(folders_[i].path.c_str());
+            row->path.setText(count > 0 ? juce::String(count) + " sounds - " + path : "no sounds: " + juce::String::fromUTF8(error.c_str()) + " - " + path,
+                              juce::dontSendNotification);
+            row->path.setColour(juce::Label::textColourId, count > 0 ? kDim : juce::Colour(0xffff5370));
+            row->path.setTooltip(row->path.getText());
+        }
         row->autoload.setToggleState(folders_[i].autoload, juce::dontSendNotification);
         row->autoload.onClick = [this, i] {
             if (i >= folders_.size()) return;
@@ -198,8 +204,11 @@ void LibraryPanel::addFolder()
 {
     chooser_ = std::make_unique<juce::FileChooser>("Sample folder", juce::File::getSpecialLocation(juce::File::userMusicDirectory));
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-                          [this](const juce::FileChooser& fc) {
-                              const auto dir = fc.getResult();
+                          [this](const juce::FileChooser& fc) { addFolderPath(fc.getResult()); });
+}
+
+void LibraryPanel::addFolderPath(const juce::File& dir)
+{
                               if (!dir.isDirectory()) return;
                               std::string name = dir.getFileName().retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-").toStdString(); // usable in code
                               if (name.empty()) name = "samples";
@@ -215,7 +224,6 @@ void LibraryPanel::addFolder()
                               folders_.push_back({unique, dir.getFullPathName().toStdString(), true});
                               commit();
                               rebuild();
-                          });
 }
 
 } // namespace concha

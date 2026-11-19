@@ -58,6 +58,8 @@ public:
     // {"version": n, "names": [...]} of the folders loaded at start.
     std::string autoloadJson() const;
     static std::string scanFolder(const std::string& path, const std::string& name, std::string* error);
+    // What a named folder gives: its number of sounds, or why it gives none (shown by the panel).
+    int folderSoundCount(const std::string& name, std::string& error);
 
     // ---- SynthDef folders (.scsyndef files, played like StrudelDirt's instruments; none by
     // default), saved in ~/.config/Concha/synthdefs.txt ----

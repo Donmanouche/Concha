@@ -44,11 +44,14 @@ export function loadLibraryFolders(names) {
   try {
     for (const name of names) {
       const report = (e) => globalThis.__conchaLog.push({ message: `[library] ${name}: ${e?.message ?? e}`, type: 'error' });
+      const before = librarySounds.size;
       try {
         samples('lib:' + name)?.catch?.(report); // (samples() is async: its errors come as a rejection)
       } catch (e) {
         report(e);
       }
+      const count = librarySounds.size - before;
+      if (count > 0) globalThis.__conchaLog.push({ message: `[library] ${name}: ${count} sounds`, type: 'info' });
     }
   } finally {
     libraryLoading = false;

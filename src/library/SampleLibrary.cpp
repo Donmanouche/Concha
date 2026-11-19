@@ -385,6 +385,18 @@ std::string SampleLibrary::folderMapJson(const std::string& name, std::string* e
     return json;
 }
 
+int SampleLibrary::folderSoundCount(const std::string& name, std::string& error)
+{
+    const std::string json = folderMapJson(name, &error);
+    if (json.empty()) {
+        if (error.empty()) error = "unknown folder";
+        return 0;
+    }
+    int n = 0;
+    for (size_t i = 0; (i = json.find("\":[", i)) != std::string::npos; i += 3) ++n;
+    return n;
+}
+
 std::string SampleLibrary::autoloadJson() const
 {
     std::lock_guard<std::mutex> lock(mutex_);

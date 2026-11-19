@@ -21,6 +21,8 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     std::function<void()> onClose;
+    // a folder chosen (by the file chooser, or a tool): named after it, loaded at start
+    void addFolderPath(const juce::File& dir);
 
 private:
     struct Row final : juce::Component {

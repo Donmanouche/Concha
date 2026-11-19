@@ -108,6 +108,16 @@ int main(int argc, char** argv)
     std::unique_ptr<Typist> typist;
     juce::Timer::callAfterDelay(1500, [&] {
         proc->evaluate(code);
+        // CONCHA_SHOT_ADD_FOLDER=<path>: the folder added from the panel while it plays, as a user does
+        if (const char* folder = std::getenv("CONCHA_SHOT_ADD_FOLDER"))
+            juce::Timer::callAfterDelay(500, [&, path = juce::String::fromUTF8(folder)] {
+                if (auto* ed = dynamic_cast<concha::ConchaEditor*>(editor.get())) {
+                    if (auto* panel = ed->openFolders()) panel->addFolderPath(juce::File(path));
+                    juce::Timer::callAfterDelay(300, [&] {
+                        if (auto* e2 = dynamic_cast<concha::ConchaEditor*>(editor.get())) e2->closeFolders();
+                    });
+                }
+            });
         if (std::getenv("CONCHA_SHOT_TYPING")) {
             typist = std::make_unique<Typist>();
             typist->root = editor.get();
