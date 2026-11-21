@@ -1,5 +1,6 @@
 #include "plugin/PluginEditor.h"
 
+#include "input/Mouse.h"
 #include "plugin/ui/HostWindow.h"
 #include "plugin/ui/Logo.h"
 #include "plugin/ui/Theme.h"
@@ -371,6 +372,9 @@ void ConchaEditor::timerCallback()
     const auto& v = proc_.transportView();
     const auto s = proc_.patternStatus();
     if (++hostTicks_ % 15 == 0) followHostWindow();
+    // mousex / mousey: the mouse over the window, as Strudel's mousemove over the page
+    if (const auto m = getMouseXYRelative(); getLocalBounds().contains(m) && getWidth() > 0 && getHeight() > 0)
+        input::setMouse(float(m.x) / float(getWidth()), float(m.y) / float(getHeight()));
 
     // after an evaluation: the evaluated code's mini-notation ranges, the known sounds
     if (s.activeGeneration != shownGeneration_) {

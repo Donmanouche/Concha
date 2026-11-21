@@ -1,6 +1,7 @@
 #include <pthread.h>
 // Renders Concha's editor off screen to a PNG, with a pattern playing (free run), to check the
 // UI without a DAW: concha_ui_shot <code.js> <out.png> [width height] [ms] [tab | library] [text to type at the end]
+#include "input/Mouse.h"
 #include "plugin/LibraryPanel.h"
 #include "plugin/PluginEditor.h"
 #include "plugin/PluginProcessor.h"
@@ -36,7 +37,10 @@ int main(int argc, char** argv)
         juce::AudioBuffer<float> buffer(2 * concha::kNumStereoBuses, 256);
         juce::MidiBuffer midi;
         auto next = std::chrono::steady_clock::now();
+        float mx = -1, my = -1; // CONCHA_SHOT_MOUSE="x,y" (0..1): mousex / mousey, held there
+        if (const char* m = std::getenv("CONCHA_SHOT_MOUSE")) std::sscanf(m, "%f,%f", &mx, &my);
         while (run) {
+            if (mx >= 0) concha::input::setMouse(mx, my);
             proc->processBlock(buffer, midi);
             next += std::chrono::microseconds(256 * 1000000 / 48000);
             std::this_thread::sleep_until(next);

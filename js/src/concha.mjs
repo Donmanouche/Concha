@@ -124,6 +124,7 @@ async function evaluate(code) {
 // keysOnly: the notes just played on the DAW's MIDI input (midiin.mjs, pushKey before).
 function query(begin, end, cps, keysOnly) {
   instance.scheduler.cps = cps; // .cpm() reads it
+  globalThis.__conchaMouse(); // mousex / mousey
   const pattern = state.pattern ?? silence;
   const run = () =>
     pattern

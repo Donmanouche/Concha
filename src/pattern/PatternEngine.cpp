@@ -1,6 +1,7 @@
 #include "pattern/PatternEngine.h"
 #include "pattern/HaskellParser.h"
 #include "input/Gamepad.h"
+#include "input/Mouse.h"
 
 #include "pattern/EmbeddedBundle.h"
 
@@ -194,6 +195,14 @@ struct PatternEngine::Impl {
         return o;
     }
 
+    static JSValue mouse(JSContext* ctx, JSValueConst, int, JSValueConst*)
+    {
+        JSValue a = JS_NewArray(ctx);
+        JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, input::mouseX().load()));
+        JS_SetPropertyUint32(ctx, a, 1, JS_NewFloat64(ctx, input::mouseY().load()));
+        return a;
+    }
+
     static int interrupt(JSContext*, void* opaque)
     {
         auto* self = static_cast<Impl*>(opaque);
@@ -308,6 +317,8 @@ struct PatternEngine::Impl {
         JS_SetPropertyStr(ctx, global.v, "__concha_hsparse", JS_NewCFunction(ctx, &Impl::hsParse, "__concha_hsparse", 1));
         // __concha_gamepad(i): {axes, buttons} of gamepad i, null when none (input/Gamepad.h)
         JS_SetPropertyStr(ctx, global.v, "__concha_gamepad", JS_NewCFunction(ctx, &Impl::gamepad, "__concha_gamepad", 1));
+        // __concha_mouse(): [x, y] of the mouse over a Concha window, 0..1 (input/Mouse.h)
+        JS_SetPropertyStr(ctx, global.v, "__concha_mouse", JS_NewCFunction(ctx, &Impl::mouse, "__concha_mouse", 0));
         if (options.host) {
             const char* natives[] = {"__concha_fetch", "__concha_library", "__concha_library_autoload", "__concha_buffer",
                                      "__concha_control", "__concha_analyser"};

@@ -1,3 +1,4 @@
+#include "input/Mouse.h"
 // PatternEngine: Strudel in QuickJS, as the pattern thread uses it.
 #include "check.h"
 #include "pattern/PatternEngine.h"
@@ -226,6 +227,18 @@ TEST("sounds: unknown names are skipped, samples resolve to files, synths get a 
         if (str(e, "__type") == "sample") CHECK(str(e, "__url") == "file:///x/bd.wav");
         else CHECK_NEAR(num(e, "__freq"), 440.0, 1e-9);
     }
+}
+
+TEST("mousex / mousey follow the mouse over the window")
+{
+    concha::input::setMouse(0.5f, 0.25f);
+    const auto ev = run(R"(note("c3").s("sine").lpf(mousex.range(0, 1000)).lpq(mousey.range(0, 8)))");
+    CHECK(ev.size() == 1);
+    if (!ev.empty()) {
+        CHECK_NEAR(num(ev[0], "cutoff"), 500.0, 1e-6);
+        CHECK_NEAR(num(ev[0], "resonance"), 2.0, 1e-6);
+    }
+    concha::input::setMouse(0.f, 0.f);
 }
 
 int main() { return RUN_TESTS(); }

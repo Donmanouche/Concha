@@ -16,10 +16,23 @@ if (!g.CustomEvent) {
     }
   };
 }
+// document listeners: only `mousemove` is ever fired (by __conchaMouse, from the window's mouse)
+const listeners = new Map();
+g.__conchaMouse = () => {
+  const m = typeof g.__concha_mouse === 'function' ? g.__concha_mouse() : null;
+  const fns = listeners.get('mousemove');
+  if (!m || !fns || (m[0] === g.__conchaMouseLast?.[0] && m[1] === g.__conchaMouseLast?.[1])) return;
+  g.__conchaMouseLast = m;
+  for (const fn of fns) fn({ type: 'mousemove', clientX: m[0], clientY: m[1] }); // body is 1 x 1
+};
 if (!g.document) {
   g.document = {
-    addEventListener: noop,
-    removeEventListener: noop,
+    addEventListener: (type, fn) => {
+      if (typeof fn !== 'function') return;
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(fn);
+    },
+    removeEventListener: (type, fn) => listeners.get(type)?.delete(fn),
     dispatchEvent: (e) => {
       if (e?.type === 'strudel.log') g.__conchaLog.push({ message: String(e.detail?.message), type: e.detail?.type ?? 'info' });
       return true;
