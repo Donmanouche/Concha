@@ -210,6 +210,7 @@ private:
     std::thread queryThread_, evalThread_, visualThread_;
 
     // Query thread only.
+    void resetTimelines(); // .timeline() starts forgotten (stop, restart)
     void applyRestart(const TransportState& t, const SwapPoint& sp, const std::string& previousCode);
     uint32_t epoch_ = UINT32_MAX;
     uint32_t codeGeneration_ = 0;

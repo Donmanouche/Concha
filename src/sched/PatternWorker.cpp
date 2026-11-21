@@ -183,6 +183,11 @@ void PatternWorker::queryLoop()
             moves.swap(sliderMoves_);
             if (swapPending_) {
                 previousCode = status_.activeCode;
+                // .timeline() starts go on with the new code (timeline.mjs): from the engine that played
+                // to the one taking over (the evaluation thread waits: swapPending_ is still set)
+                std::string json; // a JSON string literal of the offsets' JSON
+                if (!engines_[active_]->evalJson("concha.getTimelines()", json)) json = "'{}'";
+                engines_[1 - active_]->evalJson("concha.setTimelines(" + json + ")", json);
                 active_ = 1 - active_;
                 swapPending_ = false;
                 status_.activeCode = standbyCode_;
@@ -323,6 +328,12 @@ void PatternWorker::evalLoop()
     }
 }
 
+void PatternWorker::resetTimelines()
+{
+    std::string json;
+    engines_[active_]->evalJson("concha.resetTimelines()", json);
+}
+
 static bool silentCode(const std::string& code)
 {
     size_t i = code.find_first_not_of(" \t\r\n");
@@ -346,6 +357,7 @@ void PatternWorker::applyRestart(const TransportState& t, const SwapPoint& sp, c
         origin = t.loopStart;
     originPpq_ = origin;
     floorCycle_ = 0.0;
+    resetTimelines();
 }
 
 void PatternWorker::runQueries(const TransportState& t)
@@ -362,6 +374,7 @@ void PatternWorker::runQueries(const TransportState& t)
         queuedPpq_ = t.ppq;
         originPpq_ = 0.0; // the host's position again
         floorCycle_ = -1e300;
+        if (!t.playing) resetTimelines(); // as Strudel when its clock stops
     }
     if (t.playing && t.lap == cursorLap_ && (t.ppq < startedFromPpq_ - 1e-6)) {
         // started before the prepared position (pre-roll...): query from the real start
@@ -394,7 +407,7 @@ void PatternWorker::runQueries(const TransportState& t)
         std::string err;
         const auto q0 = Clock::now();
         const double origin = originPpq_.load();
-        const bool ok = engine.query((cursorPpq_ - origin) / N, (chunkEnd - origin) / N, cps, scratch_, &err);
+        const bool ok = engine.query((cursorPpq_ - origin) / N, (chunkEnd - origin) / N, cps, scratch_, &err, false, true);
         const double ms = std::chrono::duration<double, std::milli>(Clock::now() - q0).count();
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -680,7 +693,7 @@ void PatternWorker::playMidiNotes(const TransportState& t)
         std::string json;
         if (!engine.evalJson(call, json) || json != "true") continue; // no midikeys() in the code
         std::string err;
-        if (engine.query(cycle - 1e-6, cycle + 1e-6, cps, scratch_, &err, true)) pushEvents(scratch_, t, n.lap, n.ppq);
+        if (engine.query(cycle - 1e-6, cycle + 1e-6, cps, scratch_, &err, true, true)) pushEvents(scratch_, t, n.lap, n.ppq);
     }
 }
 

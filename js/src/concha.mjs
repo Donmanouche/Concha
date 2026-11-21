@@ -28,6 +28,7 @@ import * as midiin from './midiin.mjs';
 import * as io from './io.mjs';
 import * as canvas from './canvas.mjs';
 import * as visuals from './visuals.mjs';
+import * as timelines from './timeline.mjs';
 import * as sounds from './sounds.mjs';
 
 let state = { pattern: silence };
@@ -76,7 +77,7 @@ const ready = (async () => {
     // effect modules' parameters (pitch shift, grain envelope, tremolo, distort2)
     ...['shimmer', 'psrate', 'psdisp', 'tilt', 'plat', 'tremolorate', 'distort2'].map((n) => core.registerControl(n)));
   installStubs();
-  await evalScope(stubGlobals);
+  await evalScope(stubGlobals, { timeline: timelines.timeline }); // Concha's timeline (timeline.mjs)
 })();
 
 // Folders of Concha's library marked "load at start" are registered before the code runs (like
@@ -122,13 +123,15 @@ async function evaluate(code) {
 // query window: haps with an onset, sorted, then the default output unless an onSchedule
 // handler is dominant, then that handler.
 // keysOnly: the notes just played on the DAW's MIDI input (midiin.mjs, pushKey before).
-function query(begin, end, cps, keysOnly) {
+// schedule: a query of the music (the scheduler's), which may record .timeline() starts; not the
+// oscilloscope's queries ahead, the warm-up or the tools.
+function query(begin, end, cps, keysOnly, schedule) {
   instance.scheduler.cps = cps; // .cpm() reads it
   globalThis.__conchaMouse(); // mousex / mousey
   const pattern = state.pattern ?? silence;
   const run = () =>
     pattern
-      .queryArc(begin, end, keysOnly ? { _cps: cps, cyclist: 'concha', conchaKeys: true } : { _cps: cps, cyclist: 'concha' })
+      .queryArc(begin, end, { _cps: cps, ...(schedule ? { cyclist: 'concha' } : {}), ...(keysOnly ? { conchaKeys: true } : {}) })
       .filter((hap) => hap.hasOnset() && (!keysOnly || hap.value?.midikey !== undefined))
       .sort((a, b) => a.whole.begin.sub(b.whole.begin).valueOf());
   const live = midiin.live;
@@ -261,6 +264,9 @@ globalThis.concha = {
   registerSuperDirtSynths: sounds.registerSuperDirtSynths,
   registerSynthControls,
   pushKey: midiin.pushKey,
+  getTimelines: timelines.getTimelines,
+  setTimelines: timelines.setTimelines,
+  resetTimelines: timelines.resetTimelines,
   // visuals: one frame at `cycle` (canvas.mjs runFrame), the window's size
   frame(cycle, ms) {
     frameCycle = cycle;

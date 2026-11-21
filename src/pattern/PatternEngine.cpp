@@ -502,7 +502,7 @@ EvalResult PatternEngine::evaluate(std::string_view code)
 }
 
 bool PatternEngine::query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error,
-                          bool keysOnly)
+                          bool keysOnly, bool schedule)
 {
     out.clear();
     if (!ok()) {
@@ -512,8 +512,9 @@ bool PatternEngine::query(double begin, double end, double cps, std::vector<Patt
     auto& I = *impl_;
     JSContext* ctx = I.ctx;
     I.arm(I.options.queryTimeout);
-    JSValue args[4] = {JS_NewFloat64(ctx, begin), JS_NewFloat64(ctx, end), JS_NewFloat64(ctx, cps), JS_NewBool(ctx, keysOnly)};
-    Value events(ctx, JS_Call(ctx, I.queryFn, I.concha, 4, args));
+    JSValue args[5] = {JS_NewFloat64(ctx, begin), JS_NewFloat64(ctx, end), JS_NewFloat64(ctx, cps), JS_NewBool(ctx, keysOnly),
+                       JS_NewBool(ctx, schedule)};
+    Value events(ctx, JS_Call(ctx, I.queryFn, I.concha, 5, args));
     I.disarm();
     if (events.isException()) {
         const std::string msg = I.exceptionText();

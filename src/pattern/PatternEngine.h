@@ -121,8 +121,10 @@ public:
     bool hasFrames();
     void setViewport(int width, int height, double pixelRatio);
     // keysOnly: only the notes just played on the MIDI input (pushed with evalJson("concha.pushKey(...)")).
+    // schedule: a query of the music (the scheduler's, a render's): .timeline() records its starts
+    // (not for visual queries ahead, warm-ups, tools).
     bool query(double begin, double end, double cps, std::vector<PatternEvent>& out, std::string* error = nullptr,
-               bool keysOnly = false);
+               bool keysOnly = false, bool schedule = false);
 
     // hap.show(true) of every hap in [begin, end), as Strudel's tests print them.
     std::vector<std::string> showHaps(double begin, double end);
