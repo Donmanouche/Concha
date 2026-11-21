@@ -27,6 +27,8 @@ int main(int argc, char** argv)
     const juce::String code = juce::File(juce::String(argv[1])).loadFileAsString();
     proc->setCode(code);
     if (argc > 6) proc->state().state.setProperty("panelTab", juce::String(argv[6]).getIntValue(), nullptr);
+    if (const char* panel = std::getenv("CONCHA_SHOT_PANEL")) // 0: the side panel closed
+        proc->state().state.setProperty("panelOpen", juce::String(panel).getIntValue() != 0, nullptr);
 
     std::atomic<bool> run{true};
     std::thread audio([&] { // the DAW's audio thread, in real time

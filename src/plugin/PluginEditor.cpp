@@ -1,6 +1,7 @@
 #include "plugin/PluginEditor.h"
 
 #include "plugin/ui/HostWindow.h"
+#include "plugin/ui/Logo.h"
 #include "plugin/ui/Theme.h"
 
 namespace concha {
@@ -172,9 +173,7 @@ void ConchaEditor::paintChrome(juce::Graphics& g, juce::Rectangle<int> area)
     g.fillRect(top);
     g.setColour(theme::panelLine);
     g.drawHorizontalLine(top.getBottom() - 1, 0.f, (float)area.getWidth());
-    g.setColour(theme::accent);
-    g.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
-    g.drawText("concha", 14, 0, 100, 44, juce::Justification::centredLeft);
+    paintLogo(g, {14.f, 0.f, 150.f, 44.f}, theme::text);
     auto bottom = area.removeFromBottom(24);
     g.setColour(theme::panel);
     g.fillRect(bottom);
@@ -196,7 +195,7 @@ void ConchaEditor::layout(juce::Rectangle<int> area)
 {
     auto r = area;
     auto top = r.removeFromTop(44).reduced(8, 7);
-    top.removeFromLeft(100);
+    top.removeFromLeft(150); // the logo
     update_.setBounds(top.removeFromLeft(76));
     top.removeFromLeft(6);
     stop_.setBounds(top.removeFromLeft(64));
@@ -209,12 +208,12 @@ void ConchaEditor::layout(juce::Rectangle<int> area)
     status_.setBounds(r.removeFromBottom(24).reduced(10, 0));
     if (panelOpen_) {
         tabs_.setVisible(true);
-        tabs_.setBounds(r.removeFromRight(juce::jlimit(300, 560, r.getWidth() * 36 / 100)));
+        tabs_.setBounds(r.removeFromRight(juce::jlimit(210, 392, r.getWidth() * 25 / 100)));
     } else {
         tabs_.setVisible(false);
     }
     strip_.setVisible(stripWanted_); // the oscilloscope band, when the code asks for it
-    if (stripWanted_) strip_.setBounds(r.removeFromBottom(juce::jlimit(170, 320, r.getHeight() * 34 / 100)));
+    if (stripWanted_) strip_.setBounds(r.removeFromBottom(juce::jlimit(85, 160, r.getHeight() * 17 / 100))); // the panel closed: the whole width
     code_.setBounds(r.reduced(10, 6)); // strudel.cc's editor has some air around the text
     if (library_) library_->setBounds(r);
 }
