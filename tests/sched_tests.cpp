@@ -406,6 +406,46 @@ TEST("chain: start from a stopped playhead in the middle of the song")
     CHECK(c.sched.stats().late.load() == 0);
 }
 
+TEST("chain: after a stop, the next code starts the piece at cycle 0 on the next cycle")
+{
+    Chain c;
+    c.worker.start();
+    const std::string code = R"(note("<c4 d4 e4 f4>").midi())";
+    c.worker.requestEvaluate(code);
+    CHECK(c.waitReady());
+    HostPosition h;
+    h.playing = true;
+    h.bpm = 120.0; // one cycle = 4 beats = 96000 samples
+    c.prepareStart(h);
+    auto waitActive = [&](const std::string& active) {
+        for (int i = 0; i < 2000 && c.worker.status().activeCode != active; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return c.worker.status().activeCode == active;
+    };
+    c.play(h, 250, 512); // to beat 5.33 (cycle 1.33)
+    h.ppq = c.rec.blockStart * 2.0 / kSr;
+    c.worker.armRestart(); // the Stop button
+    c.worker.requestEvaluate("silence");
+    CHECK(waitActive("silence"));
+    c.play(h, 25, 512); // to beat 5.87
+    h.ppq = c.rec.blockStart * 2.0 / kSr;
+    c.worker.requestEvaluate(code); // Ctrl+Enter
+    CHECK(waitActive(code));
+    c.play(h, 1000, 512); // to beat 27.2
+    c.worker.stop();
+    std::vector<std::pair<int64_t, int>> ons;
+    for (const auto& e : c.rec.out)
+        if (e.bytes.size() == 3 && (e.bytes[0] & 0xf0) == 0x90) ons.emplace_back(e.sample, e.bytes[1]);
+    // c4 at 0, d4 at cycle 1, then the restart: c4 d4 e4 f4 c4 from beat 8 (cycle 2)
+    CHECK(ons.size() == 7);
+    const int expected[7] = {60, 62, 60, 62, 64, 65, 60};
+    for (size_t i = 0; i < ons.size() && i < 7; ++i) {
+        CHECK(ons[i].second == expected[i]);
+        CHECK(ons[i].first == int64_t(i) * 96000);
+    }
+    CHECK(c.worker.cycleOriginPpq() == 8.0);
+}
+
 int main() { return RUN_TESTS(); }
 
 namespace {

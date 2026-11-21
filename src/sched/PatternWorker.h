@@ -122,6 +122,12 @@ public:
 
     // Any thread. The latest request wins if several arrive during an evaluation.
     void requestEvaluate(std::string code);
+    // Stop (Ctrl+.): the next code that is not silence starts the piece at cycle 0, on the host's
+    // next cycle boundary, as Strudel's play after a stop. Any thread.
+    void armRestart() { restartArmed_ = true; }
+    // Pattern cycle = (host ppq - cycleOriginPpq()) / N. 0 until a restart; back to 0 when the host
+    // starts, stops or jumps. Any thread.
+    double cycleOriginPpq() const { return originPpq_.load(); }
     // The sample / SynthDef folders changed: their sounds again in the playing code, without
     // evaluating it (the list of sounds follows). Any thread.
     void requestLibraryRefresh();
@@ -199,14 +205,18 @@ private:
     std::vector<LogMessage> log_;
 
     std::atomic<bool> running_{false};
+    std::atomic<bool> restartArmed_{false};
+    std::atomic<double> originPpq_{0.0}; // written by the query thread only
     std::thread queryThread_, evalThread_, visualThread_;
 
     // Query thread only.
+    void applyRestart(const TransportState& t, const SwapPoint& sp, const std::string& previousCode);
     uint32_t epoch_ = UINT32_MAX;
     uint32_t codeGeneration_ = 0;
     int32_t cursorLap_ = 0;
     double cursorPpq_ = 0.0;
     double startedFromPpq_ = 0.0; // where the cursor of this epoch started
+    double floorCycle_ = -1e300;  // a restarted piece: events before cycle 0 are dropped (until a loop lap)
     std::atomic<int32_t> queuedLap_{0};
     std::atomic<double> queuedPpq_{-1e300};
     std::vector<PatternEvent> scratch_;

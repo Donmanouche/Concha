@@ -168,7 +168,7 @@ TransportSnapshot ConchaProcessor::readTransport(int numSamples, HostPosition& h
 
     view_.ppq = t.ppq;
     view_.bpm = t.bpm;
-    view_.cycle = t.ppq / std::max(1.0f, beatsPerCycle_->load());
+    view_.cycle = (t.ppq - worker_.cycleOriginPpq()) / std::max(1.0f, beatsPerCycle_->load());
     view_.playing = t.playing;
     view_.freeRunning = freeRun;
     view_.looping = host.looping;
@@ -287,7 +287,11 @@ void ConchaProcessor::evaluate(const juce::String& code)
     worker_.requestEvaluate(code.toStdString());
 }
 
-void ConchaProcessor::hush() { worker_.requestEvaluate("silence"); }
+void ConchaProcessor::hush()
+{
+    worker_.armRestart(); // the next Ctrl+Enter starts the piece at cycle 0
+    worker_.requestEvaluate("silence");
+}
 
 juce::String ConchaProcessor::code() const { return state_.state.getProperty("code").toString(); }
 

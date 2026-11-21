@@ -176,11 +176,13 @@ void PatternWorker::queryLoop()
     while (running_.load()) {
         const TransportState t = transport_.load();
         bool swapped = false;
+        std::string previousCode;
         std::vector<std::pair<std::string, double>> moves;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             moves.swap(sliderMoves_);
             if (swapPending_) {
+                previousCode = status_.activeCode;
                 active_ = 1 - active_;
                 swapPending_ = false;
                 status_.activeCode = standbyCode_;
@@ -216,6 +218,7 @@ void PatternWorker::queryLoop()
                 sp.lap = 0;
                 sp.ppq = t.ppq;
             }
+            applyRestart(t, sp, previousCode);
             swap_.store(sp);
             if (sp.epoch == epoch_) {
                 cursorLap_ = sp.lap;
@@ -272,7 +275,7 @@ void PatternWorker::evalLoop()
             // Warm-up: the samples of the next two cycles start loading now; wait a little for them.
             const TransportState t = transport_.load();
             const double N = std::max(1e-6, t.beatsPerCycle);
-            const double from = t.ppq / N;
+            const double from = restartArmed_ ? 0.0 : (t.ppq - originPpq_.load()) / N;
             std::vector<PatternEvent> events;
             std::vector<uint32_t> ids;
             if (standby->query(from, from + 2.0, t.bpm / 60.0 / N, events))
@@ -320,6 +323,31 @@ void PatternWorker::evalLoop()
     }
 }
 
+static bool silentCode(const std::string& code)
+{
+    size_t i = code.find_first_not_of(" \t\r\n");
+    if (i == std::string::npos) return true;
+    size_t j = code.find_last_not_of(" \t\r\n;");
+    return code.compare(i, j + 1 - i, "silence") == 0 || code.compare(i, j + 1 - i, "hush()") == 0;
+}
+
+// Swap thread (query thread): after a stop (or when nothing played yet), the new code's cycle 0 is
+// the host's next cycle boundary from the swap point (the loop start if that boundary is past the
+// loop end). Events before it are dropped. The host stopped: its start decides, nothing to do.
+void PatternWorker::applyRestart(const TransportState& t, const SwapPoint& sp, const std::string& previousCode)
+{
+    const bool wanted = restartArmed_.load() || silentCode(previousCode);
+    if (!wanted || silentCode(status_.activeCode)) return; // the silence itself keeps it armed
+    restartArmed_ = false;
+    if (!t.playing || sp.epoch != t.epoch) return;
+    const double N = std::max(1e-6, t.beatsPerCycle);
+    double origin = std::ceil(sp.ppq / N - 1e-9) * N;
+    if (t.looping && t.loopEnd > t.loopStart + 1e-9 && sp.ppq < t.loopEnd && origin >= t.loopEnd - 1e-9)
+        origin = t.loopStart;
+    originPpq_ = origin;
+    floorCycle_ = 0.0;
+}
+
 void PatternWorker::runQueries(const TransportState& t)
 {
     for (auto& e : engines_) e->setSampleRate(t.sampleRate); // zzfx / bytebeat render at the engine's rate
@@ -332,6 +360,8 @@ void PatternWorker::runQueries(const TransportState& t)
         startedFromPpq_ = t.ppq;
         queuedLap_ = 0;
         queuedPpq_ = t.ppq;
+        originPpq_ = 0.0; // the host's position again
+        floorCycle_ = -1e300;
     }
     if (t.playing && t.lap == cursorLap_ && (t.ppq < startedFromPpq_ - 1e-6)) {
         // started before the prepared position (pre-roll...): query from the real start
@@ -363,7 +393,8 @@ void PatternWorker::runQueries(const TransportState& t)
 
         std::string err;
         const auto q0 = Clock::now();
-        const bool ok = engine.query(cursorPpq_ / N, chunkEnd / N, cps, scratch_, &err);
+        const double origin = originPpq_.load();
+        const bool ok = engine.query((cursorPpq_ - origin) / N, (chunkEnd - origin) / N, cps, scratch_, &err);
         const double ms = std::chrono::duration<double, std::milli>(Clock::now() - q0).count();
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -377,6 +408,7 @@ void PatternWorker::runQueries(const TransportState& t)
         if (beforeLoopEnd && cursorPpq_ >= t.loopEnd - 1e-9) {
             cursorPpq_ = t.loopStart;
             ++cursorLap_;
+            floorCycle_ = -1e300; // a loop plays the cycles before 0 too
         }
         queuedPpq_ = cursorPpq_;
         queuedLap_ = cursorLap_;
@@ -458,7 +490,7 @@ void PatternWorker::runChannelQueries(const TransportState& t)
     if (!wanted) return;
     const double N = std::max(1e-6, t.beatsPerCycle);
     const double cps = t.bpm / 60.0 / N;
-    const double now = t.ppq / N;
+    const double now = (t.ppq - originPpq_.load()) / N;
     if (generation != channelGeneration_) {
         std::lock_guard<std::mutex> lock(channelMutex_);
         channel_.clear();
@@ -577,7 +609,7 @@ void PatternWorker::visualLoop()
         Frame f;
         f.generation = evaluated;
         const double ms = std::chrono::duration<double, std::milli>(lastFrame.time_since_epoch()).count();
-        if (!engine->frame(t.ppq / N, ms, f.canvases)) {
+        if (!engine->frame((t.ppq - originPpq_.load()) / N, ms, f.canvases)) {
             for (auto& m : engine->takeLog()) log(std::move(m.type), std::move(m.message));
             continue;
         }
@@ -642,7 +674,7 @@ void PatternWorker::playMidiNotes(const TransportState& t)
     MidiInNote n;
     while (options_.midiNotes->pop(n)) {
         if (!t.playing || n.epoch != t.epoch) continue; // as Strudel: no notes while stopped
-        const double cycle = n.ppq / N;
+        const double cycle = (n.ppq - originPpq_.load()) / N;
         char call[160];
         std::snprintf(call, sizeof call, "concha.pushKey(%d,%d,%d,%.17g)", n.note, n.velocity, n.channel, cycle);
         std::string json;
@@ -687,11 +719,13 @@ void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const Tr
     const double N = std::max(1e-6, t.beatsPerCycle);
     const bool looping = t.looping && t.loopEnd > t.loopStart + 1e-9 && chunkStartPpq < t.loopEnd;
     const double loopLen = t.loopEnd - t.loopStart;
+    const double origin = originPpq_.load();
     uint64_t dropped = 0;
 
     {
         std::lock_guard<std::mutex> lock(visualMutex_);
         for (const PatternEvent& e : events) {
+            if (e.begin < floorCycle_ - 1e-9) continue;
             if (e.locations.empty() && !e.find("uniform")) continue; // highlighting, shader uniforms
             if (visual_.size() >= 8192) visual_.pop_front();
             VisualHap v;
@@ -711,11 +745,12 @@ void PatternWorker::pushEvents(const std::vector<PatternEvent>& events, const Tr
         }
     }
     for (const PatternEvent& e : events) {
+        if (e.begin < floorCycle_ - 1e-9) continue; // before the start of a restarted piece
         SchedEvent ev;
         ev.epoch = epoch_;
         ev.codeGeneration = codeGeneration_;
         ev.lap = lap;
-        ev.ppq = e.begin * N;
+        ev.ppq = e.begin * N + origin;
         // Messages after the loop end (note-offs of long notes) belong to the next laps.
         while (looping && ev.ppq >= t.loopEnd) {
             ev.ppq -= loopLen;
