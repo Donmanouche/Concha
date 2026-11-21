@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.25)
 
 # ------------------------------------------------------------------------------------------
 # Concha: Strudel (codeberg.org/uzu/strudel) as a CLAP / VST3 plug-in. AGPL-3.0-or-later.
-# Plan: ~/.claude/plans (phase 0 = skeleton + risk spikes).
 # ------------------------------------------------------------------------------------------
 
 set(CONCHA_SHARED_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/../deps" CACHE PATH
@@ -56,11 +55,15 @@ add_library(concha_sched STATIC src/sched/PatternWorker.cpp src/sched/AudioSched
 target_include_directories(concha_sched PUBLIC src)
 target_link_libraries(concha_sched PUBLIC concha_pattern concha_library concha_scdefs Threads::Threads)
 
-add_executable(concha_query tools/concha_query/concha_query.cpp)
-target_link_libraries(concha_query PRIVATE concha_pattern concha_library)
-
-add_executable(concha_render tools/concha_render/concha_render.cpp)
-target_link_libraries(concha_render PRIVATE concha_sched concha_schost)
+# Development tools, tests and spikes: built when present (they are not in the published sources).
+if(EXISTS ${PROJECT_SOURCE_DIR}/tools/concha_query/concha_query.cpp)
+    add_executable(concha_query tools/concha_query/concha_query.cpp)
+    target_link_libraries(concha_query PRIVATE concha_pattern concha_library)
+endif()
+if(EXISTS ${PROJECT_SOURCE_DIR}/tools/concha_render/concha_render.cpp)
+    add_executable(concha_render tools/concha_render/concha_render.cpp)
+    target_link_libraries(concha_render PRIVATE concha_sched concha_schost)
+endif()
 
 juce_add_plugin(Concha
     COMPANY_NAME "Zencha"
@@ -139,13 +142,15 @@ target_link_libraries(Concha
         juce::juce_recommended_warning_flags)
 
 # Off-screen snapshot of the editor with a pattern playing (UI checks without a DAW).
-add_executable(concha_ui_shot tools/ui_shot/ui_shot.cpp)
-target_link_libraries(concha_ui_shot PRIVATE Concha)
-target_include_directories(concha_ui_shot PRIVATE src $<TARGET_PROPERTY:Concha,INCLUDE_DIRECTORIES>)
-target_compile_definitions(concha_ui_shot PRIVATE $<TARGET_PROPERTY:Concha,COMPILE_DEFINITIONS>)
+if(EXISTS ${PROJECT_SOURCE_DIR}/tools/ui_shot/ui_shot.cpp)
+    add_executable(concha_ui_shot tools/ui_shot/ui_shot.cpp)
+    target_link_libraries(concha_ui_shot PRIVATE Concha)
+    target_include_directories(concha_ui_shot PRIVATE src $<TARGET_PROPERTY:Concha,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(concha_ui_shot PRIVATE $<TARGET_PROPERTY:Concha,COMPILE_DEFINITIONS>)
+endif()
 
 option(CONCHA_BUILD_TESTS "Build the unit tests" ON)
-if(CONCHA_BUILD_TESTS)
+if(CONCHA_BUILD_TESTS AND EXISTS ${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt)
     enable_testing()
     add_subdirectory(tests)
 endif()

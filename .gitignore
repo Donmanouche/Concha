@@ -3,3 +3,17 @@ js/node_modules/
 third_party/strudel/
 third_party/quickjs-ng/
 js/ref/dist/
+# Kept locally, not published: notes, development tools, tests, spikes
+CLAUDE.md
+docs/*
+!docs/screenshot.png
+js/ref/
+js/spike/
+js/test/
+js/tools/gen-browser-api.mjs
+spikes/
+tests/
+tools/concha_query/
+tools/concha_render/
+tools/ui_shot/
+tools/sc/
