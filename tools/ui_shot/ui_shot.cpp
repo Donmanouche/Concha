@@ -1,3 +1,4 @@
+#include <pthread.h>
 // Renders Concha's editor off screen to a PNG, with a pattern playing (free run), to check the
 // UI without a DAW: concha_ui_shot <code.js> <out.png> [width height] [ms] [tab | library] [text to type at the end]
 #include "plugin/LibraryPanel.h"
@@ -29,6 +30,7 @@ int main(int argc, char** argv)
 
     std::atomic<bool> run{true};
     std::thread audio([&] { // the DAW's audio thread, in real time
+        pthread_setname_np(pthread_self(), "host-audio");
         juce::AudioBuffer<float> buffer(2 * concha::kNumStereoBuses, 256);
         juce::MidiBuffer midi;
         auto next = std::chrono::steady_clock::now();

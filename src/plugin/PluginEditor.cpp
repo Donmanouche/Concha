@@ -434,7 +434,7 @@ void ConchaEditor::timerCallback()
         std::lock_guard<std::mutex> lock(shaderAreaMutex_);
         stripArea_ = strip_.isVisible() ? getLocalArea(&strip_, strip_.getLocalBounds()) : juce::Rectangle<int>();
     }
-    if (stripWanted_ && (ticks_ % 2 == 0)) updateStrip(); // 30 frames a second: enough for the band, half the painting
+    if (stripWanted_ && (ticks_ % 3 == 0)) updateStrip(); // 20 frames a second: enough for the band, a third of the painting
     if (auto frames = proc_.takeFrames(); !frames.empty()) code_.addFrames(frames);
 
     std::array<float, 16> peaks{};

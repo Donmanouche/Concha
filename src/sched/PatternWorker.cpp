@@ -6,11 +6,26 @@
 #include "library/SampleLibrary.h"
 
 #include <chrono>
+#if defined(__linux__)
+#include <pthread.h>
+#endif
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
 namespace concha {
+
+namespace {
+// names seen in top -H, debuggers and profilers
+void nameThread(const char* name)
+{
+#if defined(__linux__)
+    pthread_setname_np(pthread_self(), name);
+#else
+    (void)name;
+#endif
+}
+} // namespace
 
 static std::vector<PatternWorker::ActiveCodeInfo::Block> parseBlocks(const std::string& code);
 
@@ -57,8 +72,8 @@ PatternWorker::~PatternWorker() { stop(); }
 void PatternWorker::start()
 {
     if (running_.exchange(true)) return;
-    queryThread_ = std::thread([this] { queryLoop(); });
-    visualThread_ = std::thread([this] { visualLoop(); });
+    queryThread_ = std::thread([this] { nameThread("concha-query"); queryLoop(); });
+    visualThread_ = std::thread([this] { nameThread("concha-visual"); visualLoop(); });
 }
 
 void PatternWorker::stop()
@@ -155,7 +170,7 @@ void PatternWorker::queryLoop()
         std::lock_guard<std::mutex> lock(mutex_);
         status_.ready = true;
     }
-    evalThread_ = std::thread([this] { evalLoop(); });
+    evalThread_ = std::thread([this] { nameThread("concha-eval"); evalLoop(); });
     evalCv_.notify_all();
 
     while (running_.load()) {
@@ -338,6 +353,8 @@ void PatternWorker::runQueries(const TransportState& t)
         cursorPpq_ = t.ppq;
         ahead = 0.0;
     }
+    const double refill = std::clamp(options_.refillSeconds * t.bpm / 60.0, 0.0, horizon * 0.8);
+    if (ahead >= horizon - refill) return; // enough queued
     for (int guard = 0; ahead < horizon && guard < 64; ++guard) {
         double chunkEnd = cursorPpq_ + std::min(options_.maxChunkBeats, horizon - ahead + 1e-6);
         const bool beforeLoopEnd = looping && cursorPpq_ < t.loopEnd;

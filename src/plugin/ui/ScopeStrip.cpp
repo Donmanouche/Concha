@@ -171,7 +171,16 @@ void ScopeStrip::update(const Model& m)
                     start = i;
                     break;
                 }
-            std::vector<float> trace(d.begin() + start, d.begin() + start + span);
+            // about one point per 1.5 pixels: each point the sample of largest magnitude of its slice
+            const int points = std::clamp(int(in.getWidth() / 1.5f), 16, span);
+            std::vector<float> trace(static_cast<size_t>(points));
+            for (int p = 0; p < points; ++p) {
+                const int a = start + p * span / points, b = std::max(a + 1, start + (p + 1) * span / points);
+                float best = d[size_t(a)];
+                for (int i = a + 1; i < b; ++i)
+                    if (std::abs(d[size_t(i)]) > std::abs(best)) best = d[size_t(i)];
+                trace[size_t(p)] = best;
+            }
             auto draw = [&](const std::vector<float>& t, juce::Colour c, float w) {
                 juce::Point<float> prev;
                 for (int i = 0; i < int(t.size()); ++i) {
@@ -266,22 +275,16 @@ void ScopeStrip::paint(juce::Graphics& g)
         staticKey_ = key;
     }
     g.drawImageAt(staticImage_, 0, 0);
-    // the traces, batched by colour and width: a faint halo (phosphor), then the line
+    // the traces, batched by colour and width (no halo: it doubled the cost of painting)
     std::map<std::tuple<juce::uint32, int, int>, juce::Path> batches;
     for (const auto& s : frame_.segs) {
-        auto& p = batches[{s.colour.getARGB(), int(s.width * 10), int(s.halo * 10)}];
+        auto& p = batches[{s.colour.getARGB(), int(s.width * 10), 0}];
         p.startNewSubPath(s.a);
         p.lineTo(s.b);
     }
     for (const auto& [k, p] : batches) {
-        const juce::Colour c(std::get<0>(k));
-        const float w = float(std::get<1>(k)) / 10, halo = float(std::get<2>(k)) / 10;
-        if (halo > 0) {
-            g.setColour(c.withMultipliedAlpha(0.16f));
-            g.strokePath(p, juce::PathStrokeType(w + 2 * halo, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-        g.setColour(c);
-        g.strokePath(p, juce::PathStrokeType(w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(juce::Colour(std::get<0>(k)));
+        g.strokePath(p, juce::PathStrokeType(float(std::get<1>(k)) / 10, juce::PathStrokeType::mitered, juce::PathStrokeType::square));
     }
 }
 

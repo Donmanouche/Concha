@@ -16,7 +16,7 @@ now drawn natively, in a band under the code that only exists when the code asks
 | **Only traces** | `src/plugin/ui/ScopeStrip` | The screens show only their graticules and traces: no titles, readouts or values (removed after phase 8 at the user's request). |
 | **Main screen** | `src/plugin/ui/ScopeStrip` | A graticule of 10 × 8 divisions with graduated axes, at 1/4 cycle per division. The trigger mark (▼) is the present, at the centre. What has played stays on the left, dimmed and fading, as a phosphor's afterglow. Each channel has the colour of a multi-channel oscilloscope (yellow, cyan, magenta, green…):<ul><li>drums are **pulses** with their decay, taller for a kick than for a hi-hat, scaled by gain;</li><li>a melody is a **step trace** whose height is the pitch;</li><li>chords show **one segment per note**.</li></ul> |
 | **SCOPE / FFT** | `ScopeStrip`, `ConchaProcessor::uiAnalyser` | SCOPE is the analysed sound (`.analyze(id)`, as Strudel), aligned on a rising zero crossing, with the previous trace in afterglow. FFT is its spectrum on a logarithmic axis from 20 Hz to 20 kHz, -100..0 dB. |
-| **Efficiency** | `ScopeStrip::paint`, `PatternWorker::runChannelQueries` | Painted in software, 30 times a second, like the rest of the window. The screens and graticules are drawn once into an image; each frame adds the traces (a few batched paths with a faint halo). The channels' haps come from short queries on the pattern thread, up to 1.5 cycles ahead, and only while the window is open. No JS runs per frame, and there is no third JS engine for these visuals. Measured: the band (3 channels, SCOPE and FFT) costs about 20 % of a core and never delays typing. |
+| **Efficiency** | `ScopeStrip::paint`, `PatternWorker::runChannelQueries` | Painted in software, 20 times a second, like the rest of the window. The screens and graticules are drawn once into an image; each frame adds the traces (a few batched paths, without halo: it doubled the cost), the SCOPE trace at about one point per 1.5 pixels. The channels' haps come from short queries on the pattern thread, up to 1.5 cycles ahead, and only while the window is open. No JS runs per frame, and there is no third JS engine for these visuals. Measured: the band (3 screens) costs about 8 % of a core on the message thread (19 % with the halo at 30 frames a second) and never delays typing. |
 | **A user's own drawing** | `js/src/canvas.mjs`, `src/plugin/ui/Canvas2D`, `PatternWorker::visualLoop` | `.draw()`, `.onPaint()` and `animate()` written in the code keep Strudel's canvas behind the code, replayed by the window. Their JS engine on its own thread only starts when the code uses them. |
 
 ## Why not OpenGL (except for shaders)
@@ -80,3 +80,19 @@ Hydra (`@strudel/hydra`) is not embedded: shaders take its place, as planned.
 
 - the band while the DAW plays, loops and jumps, and resizing the window;
 - a shader (with the GPU of your machine).
+
+## CPU (after phase 8)
+
+Measured per thread while playing, in % of one core (`concha_ui_shot`, a real window for the band):
+
+| Case | Before | After |
+|---|---|---|
+| empty code | 13 % | 7 % |
+| 4 notes | 29 % | 9 % |
+| 2 blocks, 3 screens | 52 % | 21 % |
+
+- **Pattern thread** (`PatternWorker::runQueries`): it woke every 4 ms and queried Strudel for those 4 ms, about 250 queries a second, each a walk of the whole pattern in QuickJS. It now waits until less than `lookahead - refillSeconds` (0.25 - 0.12 s) is queued, then fills up to the lookahead in one query: about 8 a second.
+- **scsynth** (`SC_HostDriver::Process`): the three Worlds' non-real-time threads were signalled after every 64-sample block. They are now signalled when one of their queues has data (replies, node ends, triggers), or every 64 blocks.
+- **The band**: no halo, 20 frames a second, a decimated SCOPE trace.
+- The audio itself is cheap: 80 s of sound render in about 1.5 s of CPU.
+- Threads are named (`concha-query`, `concha-eval`, `concha-visual`) for `top -H` and debuggers.

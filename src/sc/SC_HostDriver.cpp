@@ -143,10 +143,18 @@ public:
         } catch (...) {
             scprintf("SC_HostDriver: unknown exception in real time\n");
         }
-        mAudioSync.Signal();
+        // the non-real-time thread only when it has something to do (or now and then): signalling it
+        // after every 64-sample block woke three threads 750 times a second each for nothing
+        HiddenWorld* hw = world->hw;
+        if (mFromEngine.HasData() || hw->mTriggers.HasData() || hw->mNodeMsgs.HasData() || hw->mNodeEnds.HasData() ||
+            hw->mDeleteGraphDefs.HasData() || ++mIdleSignals >= 64) {
+            mIdleSignals = 0;
+            mAudioSync.Signal();
+        }
     }
 
 protected:
+    int mIdleSignals = 0;
     std::vector<RtMsg> mRt = std::vector<RtMsg>(kRtQueue);
     int mRtPending = 0;
     uint64_t mRtSeq = 0;

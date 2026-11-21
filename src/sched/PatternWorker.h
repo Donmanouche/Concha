@@ -33,6 +33,9 @@ class PatternWorker {
 public:
     struct Options {
         double lookaheadSeconds = 0.25;
+        // queries wait until less than lookahead - refill is queued, then fill up to lookahead: one
+        // query of ~refill seconds instead of one tiny query per wake-up (each costs a whole pattern walk)
+        double refillSeconds = 0.12;
         double maxChunkBeats = 1.0;           // longest single query
         double swapMarginSeconds = 0.1;       // new code starts this far after the playhead (room for a slow query)
         std::chrono::milliseconds period{4};  // worker wake-up
