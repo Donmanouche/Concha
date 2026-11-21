@@ -26,6 +26,8 @@ std::vector<PatternEvent> run(const std::string& code, double begin = 0, double 
     std::string err;
     if (!engine().query(begin, end, cps, ev, &err)) std::printf("    query: %s\n", err.c_str());
     engine().takeLog();
+    // what plays (the "visual" events only highlight / draw haps that make no sound themselves)
+    std::erase_if(ev, [](const PatternEvent& e) { return e.kind == "visual"; });
     return ev;
 }
 
@@ -255,6 +257,16 @@ TEST("visuals: .pianoroll() & co. mark their haps (no drawing in JS); scope / sp
     int marked = 0, plain = 0;
     for (const auto& x : ev) (x.visual ? marked : plain) += 1;
     CHECK(marked == 4 && plain == 1); // bd bd c2 e2 marked, g4 not
+    // .midi() sends messages, not the hap: the hap still reaches the channels and the highlighting
+    r = e.evaluate("note(\"c3 e3\").midi().pianoroll()");
+    ev.clear();
+    CHECK(r.ok && e.query(0, 1, 0.5, ev));
+    int visuals = 0, notesOn = 0;
+    for (const auto& x : ev) {
+        if (x.kind == "visual" && x.visual && !x.locations.empty() && x.find("note")) ++visuals;
+        if (x.kind == "midimsg") ++notesOn;
+    }
+    CHECK(visuals == 2 && notesOn == 4);
     r = e.evaluate("note(\"c3\").s(\"sine\").scope()._spectrum()");
     CHECK(r.ok && !r.visuals.channels && r.visuals.scope.size() == 1 && r.visuals.fft.size() == 1);
     CHECK(r.visuals.scope[0] == "1");

@@ -144,12 +144,20 @@ function query(begin, end, cps, keysOnly) {
   haps.forEach((hap, index) => {
     const t = hap.whole.begin.valueOf() / cps;
     try {
+      let sounded = false;
       if (!hap.context.onSchedule || !hap.context.dominantSchedule) {
         const e = toEvent('sound', hap);
         if (bindings?.[index]?.length) e.value.__live = bindings[index].join(';');
         e.value = sounds.resolveSound(e.value, { cps, begin: e.begin / cps, duration: e.dur / cps });
-        if (e.value.__type !== 'skip') events.push(e);
+        if (e.value.__type !== 'skip') {
+          events.push(e);
+          sounded = true;
+        }
       }
+      // .midi() and the other outputs send messages, not the hap: the hap itself still goes to the
+      // highlighting and to the oscilloscope's channels (kind "visual", nothing plays it).
+      if (!sounded && !keysOnly && (hap.context.conchaVisual || hap.context.locations?.length))
+        events.push(toEvent('visual', hap));
       if (hap.context.onSchedule) {
         hap.context.onSchedule(hap, t, cps);
         events.push(...outbox.events);
