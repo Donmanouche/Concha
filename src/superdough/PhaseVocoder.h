@@ -9,6 +9,7 @@
 // later). The scheduler starts stretched sounds that much earlier, on top of superdough's own 40 ms.
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 

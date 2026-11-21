@@ -8,6 +8,7 @@
 #include "superdough/SynthServer.h"
 
 #include <array>
+#include <cstddef>
 #include <vector>
 
 namespace concha::sc {

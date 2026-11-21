@@ -22,6 +22,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(CONCHA_BUILD_SPIKES "Build the phase 0 experiments in spikes/" ON)
+option(CONCHA_JACK "JACK in the standalone (needs the JACK headers)" ON)
 
 add_subdirectory(${CONCHA_JUCE_DIR} ${PROJECT_BINARY_DIR}/juce EXCLUDE_FROM_ALL)
 add_subdirectory(${CONCHA_CLAP_JUCE_DIR} ${PROJECT_BINARY_DIR}/clap-juce-extensions EXCLUDE_FROM_ALL)
@@ -123,7 +124,7 @@ target_compile_definitions(Concha PUBLIC
     JUCE_REPORT_APP_USAGE=0
     # Standalone: PipeWire answers through both its ALSA and its JACK interfaces.
     JUCE_ALSA=1
-    JUCE_JACK=1)
+    JUCE_JACK=$<BOOL:${CONCHA_JACK}>)
 
 target_link_libraries(Concha
     PRIVATE

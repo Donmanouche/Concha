@@ -33,7 +33,7 @@ install), GM soundfonts, Tidal syntax, Mondo, gamepad, MQTT and serial output, s
 2. Copy `Concha.clap` to `~/.clap/` and/or `Concha.vst3` to `~/.vst3/`.
 3. Rescan plug-ins in your DAW. Tested in Bitwig Studio (CLAP recommended) and Carla.
 
-Built on Ubuntu 24.04. Windows and macOS versions are planned.
+Runs on Ubuntu 22.04 and later (glibc 2.35). Windows and macOS versions are planned.
 
 ## Quick start
 
@@ -60,7 +60,7 @@ npm --prefix js ci
 cmake -S . -B build -G Ninja && ninja -C build
 ```
 
-Details are in [docs/](docs/).
+Details are in [docs/](docs/). Release builds for Ubuntu 22.04: `tools/release/build-jammy.sh`.
 
 ## License
 
