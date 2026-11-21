@@ -1,4 +1,5 @@
 // The editor's pieces (src/plugin/ui), without a window.
+#include "plugin/PluginProcessor.h"
 #include "plugin/ui/Canvas2D.h"
 #include "check.h"
 #include "plugin/ui/CodeView.h"
@@ -213,4 +214,50 @@ TEST("code view: a slider follows its call when the code scrolls (lines and colu
     CHECK(slider->getX() == callAt().getX());
     view.scrollToLine(0); // out of view: hidden
     CHECK(!slider->isVisible());
+}
+
+TEST("processor: a MIDI CC moves the cutoff of a note while it plays (live controls)")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    concha::ConchaProcessor proc;
+    const int block = 256;
+    proc.setPlayConfigDetails(0, 2 * concha::kNumStereoBuses, 48000, block);
+    proc.prepareToPlay(48000, block);
+    if (auto* fr = proc.state().getParameter("freeRun")) fr->setValueNotifyingHost(1.0f);
+    proc.evaluate(R"(const cc = await midin('knobs')
+$: note("c2").s("sawtooth").lpf(cc(74).range(200, 6000)).sustain(1).slow(8).late(.25))"); // onset 0.5 s in
+    juce::AudioBuffer<float> buffer(2 * concha::kNumStereoBuses, block);
+    for (int i = 0; i < 1500; ++i) { // the engines start, then the code is evaluated and swapped in
+        const auto st = proc.patternStatus();
+        if (st.ready && !st.evaluating && st.evaluations >= 1 && !st.activeCode.empty()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(proc.patternStatus().lastOk);
+    std::vector<float> mono;
+    const int blocks = int(3.0 * 48000 / block);
+    auto next = std::chrono::steady_clock::now();
+    for (int b = 0; b < blocks; ++b) { // in real time, as a host: the pattern thread queries ahead
+        juce::MidiBuffer midi;
+        if (b == blocks / 2) midi.addEvent(juce::MidiMessage::controllerEvent(1, 74, 127), 0); // the knob turned
+        buffer.clear();
+        proc.processBlock(buffer, midi);
+        for (int i = 0; i < block; ++i) mono.push_back(buffer.getSample(0, i));
+        next += std::chrono::microseconds(block * 1000000 / 48000);
+        std::this_thread::sleep_until(next);
+    }
+    // brightness: the share of energy above ~2 kHz (a one-pole low-pass removed)
+    auto brightness = [&](size_t from, size_t to) {
+        double lp = 0, high = 0, all = 0;
+        for (size_t i = from; i < to && i < mono.size(); ++i) {
+            lp += (mono[i] - lp) * 0.25;
+            high += (mono[i] - lp) * (mono[i] - lp);
+            all += double(mono[i]) * mono[i];
+        }
+        return all > 0 ? high / all : 0.0;
+    };
+    const size_t change = size_t(blocks / 2) * size_t(block);
+    const double before = brightness(change - 19200, change), after = brightness(change + 4800, change + 24000);
+    std::printf("    brightness before %.4f, after %.4f (%s)\n", before, after, proc.patternStatus().lastError.c_str());
+    CHECK(before > 0);
+    CHECK(after > before * 3); // 200 Hz -> 6 kHz on the same note, no new onset
 }

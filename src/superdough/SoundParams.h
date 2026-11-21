@@ -62,7 +62,7 @@ enum class ModTarget : uint8_t {
     Count
 };
 struct Modulator {
-    uint8_t kind = 0; // 0 none, 1 lfo, 2 env, 3 bmod (dcoffset = its dc)
+    uint8_t kind = 0; // 0 none, 1 lfo, 2 env, 3 bmod (dcoffset = its dc), 4 live control (Concha's)
     float bus = 0;    // bmod: the bus read
     ModTarget target = ModTarget::None;
     int8_t targetIndex = -1; // ModFrequency...: index of the modulated modulator
@@ -75,6 +75,11 @@ struct Modulator {
     float attack = std::numeric_limits<float>::quiet_NaN(), decay = std::numeric_limits<float>::quiet_NaN();
     float sustain = std::numeric_limits<float>::quiet_NaN(), release = std::numeric_limits<float>::quiet_NaN();
     float acurve = 0, dcurve = 0, rcurve = 0;
+    // kind 4: the parameter follows a MIDI CC (liveKind 0, liveA = cc, liveB = channel or 0) or a macro
+    // (liveKind 1, liveA = 1..16) while the voice plays: value + liveSlope * (control - liveC0)
+    int8_t liveKind = 0, liveB = 0;
+    int16_t liveA = 0;
+    float liveC0 = 0, liveSlope = 0;
 };
 
 // One FM operator of applyFM's matrix (fmhN, fmwaveN, fmenvN, fmattackN...).

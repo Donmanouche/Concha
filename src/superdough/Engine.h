@@ -34,6 +34,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -62,6 +63,9 @@ public:
     void setFxServer(FxServer* server) { fxServer_ = server; }
     // StrudelDirt's orbit effects (src/sc/ScOrbitFx): leslie, shimmer.
     void setOrbitFxServer(OrbitFxServer* server) { orbitFx_ = server; }
+    // Live controls (modulators of kind 4): the current value, 0..1, of a MIDI CC (kind 0, a = cc,
+    // b = channel or 0) or a macro (kind 1, a = 1..16). Called on the audio thread: lock-free reads only.
+    void setLiveControls(std::function<double(int kind, int a, int b)> read) { liveControl_ = std::move(read); }
     // `.analyze(id)`: the analysed voices' sound, for the visuals (any thread reads it)
     const AnalyserTaps& analysers() const { return *analysers_; }
 
@@ -96,6 +100,7 @@ private:
     void builderLoop();
 
     double sampleRate_ = 48000.0;
+    std::function<double(int, int, int)> liveControl_;
     bool synchronousReverb_ = false;
     int64_t absSample_ = 0; // engine clock: samples rendered since prepare()
     std::unique_ptr<PeriodicWaves> waves_;

@@ -30,6 +30,8 @@ struct SoundConverter {
     using Report = std::function<void(const std::string& key, const std::string& message)>;
     // The controls of a hap value (or of one FX stage) into `out`; false: the sound cannot play.
     bool convertControls(const PatternEvent& e, sd::SoundParams& out, const Report& report);
+    // Concha's live controls (__live): parameters that follow a MIDI CC or a macro while they play.
+    void parseLive(const PatternEvent& e, sd::SoundParams& out, const Report& report);
     // lfo / env / bmod of a value (fxi = its FX stage, -1 = main), appended to out.modulators.
     void parseModulators(const PatternEvent& e, int fxi, sd::SoundParams& out, std::vector<std::string>& modIds,
                          const Report& report);

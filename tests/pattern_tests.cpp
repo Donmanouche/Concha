@@ -129,6 +129,25 @@ TEST("error inside a query is caught")
     CHECK(!ok ? err.find("boom") != std::string::npos : !log.empty());
 }
 
+TEST("live controls: parameters that follow midin() / macro() carry their slope (__live)")
+{
+    // no host: every control reads 0; cutoff = 200 + 3800 * cc, gain = macro(2), note does not follow
+    const auto ev = run(R"(const cc = await midin('knobs')
+note("c3 e3").s("sawtooth").lpf(cc(74).range(200, 4000)).gain(macro(2)).room(.3))");
+    CHECK(ev.size() == 2);
+    for (const auto& e : ev) {
+        const std::string live = str(e, "__live");
+        CHECK(live.find("cutoff:0:74:0:0:3800") == 0);
+        CHECK(live.find(";gain:1:2:0:0:1") != std::string::npos);
+        CHECK(live.find("room") == std::string::npos);
+    }
+    // a control that changes the structure gets no binding; code without controls gets none
+    const auto fast = run(R"(const cc = await midin('knobs')
+s("bd").fast(cc(1).range(1, 3)))");
+    for (const auto& e : fast) CHECK(str(e, "__live").empty());
+    for (const auto& e : run(R"(s("bd sd").lpf(800))")) CHECK(str(e, "__live").empty());
+}
+
 TEST("midi(): raw messages instead of the default output")
 {
     const auto ev = run(R"(note("c e").midi())");

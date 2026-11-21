@@ -212,6 +212,39 @@ TEST("engine: a synth starts on its sample, lasts duration + release, on its orb
     CHECK(e.activeVoices() == 0);
 }
 
+TEST("engine: a live control moves the gain of a playing voice, smoothed")
+{
+    Engine e;
+    e.prepare(kSr);
+    double knob = 0.0;
+    e.setLiveControls([&](int kind, int a, int) { return kind == 1 && a == 2 ? knob : 0.0; });
+    Out out(1, 96000);
+    SoundParams p = synth(SynthWave::Sine, 220.f);
+    p.gain = 0.2f;
+    p.sustain = 1.f;
+    p.numModulators = 1;
+    p.modulators[0].kind = 4;
+    p.modulators[0].target = ModTarget::Gain;
+    p.modulators[0].liveKind = 1;
+    p.modulators[0].liveA = 2;
+    p.modulators[0].liveC0 = 0.f;
+    p.modulators[0].liveSlope = 1.f; // gain = 0.2 + knob
+    e.trigger(0, p, 1.8, 0.5, 0.0);
+    render(e, out, 48000);
+    knob = 0.6; // the knob turned while the note plays
+    render(e, out, 48000, 48000);
+    auto peak = [&](int from, int to) {
+        float m = 0.f;
+        for (int i = from; i < to; ++i) m = std::max(m, std::fabs(out.at(0, 0, i)));
+        return m;
+    };
+    const float before = peak(24000, 48000), after = peak(60000, 90000);
+    CHECK(before > 0.01f);
+    CHECK_NEAR(after / before, 4.0, 0.15); // 0.8 / 0.2
+    // smoothed: no jump in the first samples after the change
+    CHECK(peak(48000, 48218) < before * 3.f); // smoothed: one period after the change, still far from x4
+}
+
 TEST("engine: low-pass envelope opens and closes the filter")
 {
     Engine e;

@@ -201,7 +201,7 @@ struct EnvMod {
 };
 
 struct ModState {
-    uint8_t kind = 0; // 1 lfo, 2 env
+    uint8_t kind = 0; // 1 lfo, 2 env, 3 bmod, 4 live control
     ModTarget target = ModTarget::None;
     int targetSlot = -1; // ModFrequency...: the voice's modulator slot
     Lfo lfo;
@@ -213,6 +213,9 @@ struct ModState {
     // inputs from other modulators: frequency, depth, dcoffset, skew, curve, attack, decay, sustain, release
     double in[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     double baseCurve = 1;
+    // kind 4, a live control: slope * (smoothed control - c0), clamped to [liveMin, liveMax]
+    int liveKind = 0, liveA = 0, liveB = 0;
+    double liveC0 = 0, liveSlope = 0, liveTarget = 0, liveValue = 0, liveMin = kNaN, liveMax = kNaN;
 };
 
 // ---- wavetable-oscillator-processor (worklets.mjs) ----
@@ -2140,6 +2143,15 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
                 l.mx = std::isnan(mx) ? l.dcoffset * depth + depth : mx;
                 l.begin = 0;
                 l.end = endWithRelease;
+            } else if (md.kind == 4) { // a live control: starts where the control is now (no glide from c0)
+                m.liveKind = md.liveKind;
+                m.liveA = md.liveA;
+                m.liveB = md.liveB;
+                m.liveC0 = md.liveC0;
+                m.liveSlope = md.liveSlope;
+                m.liveTarget = m.liveValue = liveControl_ ? liveControl_(m.liveKind, m.liveA, m.liveB) : double(md.liveC0);
+                m.liveMin = mn;
+                m.liveMax = mx;
             } else if (md.kind == 3) { // connectBusModulator: (dc + bus) * depth / 0.3, clamped by a waveshaper
                 m.bus = busSlot(md.bus);
                 if (m.bus < 0) continue;
@@ -2436,6 +2448,7 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
 {
     numSamples = std::min(numSamples, kMaxBlock);
     const double sr = sampleRate_, dt = 1.0 / sr;
+    const double liveSmoothing = 1.0 - std::exp(-1.0 / (0.01 * sr)); // live controls: ~10 ms
     const PeriodicWaves& waves = *waves_;
     for (auto& o : *orbits_) {
         if (!o.used) continue;
@@ -2497,6 +2510,11 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
                             m.lfo.quantum(double(v.index - quantumIndex) * dt);
                         }
                         out = m.lfo.next(sr);
+                    } else if (m.kind == 4) { // a live control, read once per render quantum, smoothed (~10 ms)
+                        if (quantumStart && liveControl_) m.liveTarget = liveControl_(m.liveKind, m.liveA, m.liveB);
+                        m.liveValue += (m.liveTarget - m.liveValue) * liveSmoothing;
+                        out = m.liveSlope * (m.liveValue - m.liveC0);
+                        if (!std::isnan(m.liveMin)) out = clampd(out, m.liveMin, m.liveMax);
                     } else if (m.kind == 3) { // the bus mixed down to mono, as an AudioParam input
                         const auto& bb = (*audioBuses_)[size_t(m.bus)].buf;
                         out = (m.dc + 0.5 * (double(bb[0][size_t(i)]) + double(bb[1][size_t(i)]))) * m.bmodDepth;

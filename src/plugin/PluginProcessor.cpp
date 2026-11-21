@@ -60,6 +60,7 @@ ConchaProcessor::ConchaProcessor() : AudioProcessor(makeBuses()), state_(*this, 
         if (kind == 1 && a >= 1 && a <= 16) return macros_[size_t(a - 1)]->load(std::memory_order_relaxed);
         return 0.0;
     };
+    superdough_.setLiveControls(host_.controls); // playing voices follow midin() / macro() (atomics only)
     state_.state.setProperty("code", juce::String(), nullptr); // a new instance starts empty
     worker_.start(); // the JS engines start on the pattern thread, the DAW is not blocked
 }

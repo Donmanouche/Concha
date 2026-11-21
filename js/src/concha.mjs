@@ -125,17 +125,28 @@ async function evaluate(code) {
 function query(begin, end, cps, keysOnly) {
   instance.scheduler.cps = cps; // .cpm() reads it
   const pattern = state.pattern ?? silence;
-  const haps = pattern
-    .queryArc(begin, end, keysOnly ? { _cps: cps, cyclist: 'concha', conchaKeys: true } : { _cps: cps, cyclist: 'concha' })
-    .filter((hap) => hap.hasOnset() && (!keysOnly || hap.value?.midikey !== undefined))
-    .sort((a, b) => a.whole.begin.sub(b.whole.begin).valueOf());
+  const run = () =>
+    pattern
+      .queryArc(begin, end, keysOnly ? { _cps: cps, cyclist: 'concha', conchaKeys: true } : { _cps: cps, cyclist: 'concha' })
+      .filter((hap) => hap.hasOnset() && (!keysOnly || hap.value?.midikey !== undefined))
+      .sort((a, b) => a.whole.begin.sub(b.whole.begin).valueOf());
+  const live = midiin.live;
+  live.reads = new Map();
+  let haps;
+  try {
+    haps = run();
+  } finally {
+    live.reads = live.reads.size ? live.reads : null;
+  }
+  const bindings = keysOnly ? (live.reads = null) : liveBindings(haps, run);
   const events = [];
   outbox.events = [];
-  for (const hap of haps) {
+  haps.forEach((hap, index) => {
     const t = hap.whole.begin.valueOf() / cps;
     try {
       if (!hap.context.onSchedule || !hap.context.dominantSchedule) {
         const e = toEvent('sound', hap);
+        if (bindings?.[index]?.length) e.value.__live = bindings[index].join(';');
         e.value = sounds.resolveSound(e.value, { cps, begin: e.begin / cps, duration: e.dur / cps });
         if (e.value.__type !== 'skip') events.push(e);
       }
@@ -147,10 +158,45 @@ function query(begin, end, cps, keysOnly) {
     } catch (e) {
       globalThis.__conchaLog.push({ message: `[query] ${e?.message ?? e}`, type: 'error' });
     }
-  }
+  });
   outbox.events = null;
   if (keysOnly) midiin.clearKeys();
   return events;
+}
+
+// Parameters that follow a MIDI CC (midin) or a macro: the query again with each control read moved a
+// little; a number of a hap's value that changes follows it, with that slope. Returns, per hap,
+// "param:kind:a:b:c0:slope" strings; the audio thread then moves the playing voices' parameters with
+// the control (Engine: modulators of kind 4). Null when the query read no control.
+function liveBindings(haps, run) {
+  const live = midiin.live;
+  const reads = live.reads;
+  live.reads = null;
+  if (!reads) return null;
+  const bindings = haps.map(() => []);
+  for (const [key, c0] of reads) {
+    const delta = c0 <= 0.9 ? 0.1 : -0.1;
+    live.override = { key, value: c0 + delta };
+    let moved;
+    try {
+      moved = run();
+    } catch (e) {
+      moved = null;
+    } finally {
+      live.override = null;
+    }
+    if (!moved || moved.length !== haps.length) continue; // the control changes the structure: no live binding
+    haps.forEach((hap, i) => {
+      const other = moved[i];
+      if (!other.whole.begin.equals(hap.whole.begin) || typeof hap.value !== 'object' || !hap.value) return;
+      for (const [param, v] of Object.entries(hap.value)) {
+        const w = other.value?.[param];
+        if (typeof v === 'number' && typeof w === 'number' && w !== v && Number.isFinite(w - v))
+          bindings[i].push(`${param}:${key}:${c0}:${(w - v) / delta}`);
+      }
+    });
+  }
+  return bindings;
 }
 
 function showHaps(begin, end) {

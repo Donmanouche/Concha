@@ -600,6 +600,57 @@ void SoundConverter::parseModulators(const PatternEvent& e, int fxi, sd::SoundPa
     }
 }
 
+// Concha's live controls: "param:kind:a:b:c0:slope;..." (concha.mjs liveBindings) -> modulators of
+// kind 4, which move the parameter of the playing voice with the MIDI CC or macro.
+void SoundConverter::parseLive(const PatternEvent& e, sd::SoundParams& out, const Report& report)
+{
+    const ParamValue* live = e.find("__live");
+    if (!live || live->type != ParamValue::Type::String) return;
+    auto number = [&](const char* key, double fallback) {
+        const ParamValue* v = e.find(key);
+        return v && v->type == ParamValue::Type::Number ? v->number : fallback;
+    };
+    size_t at = 0;
+    const std::string& text = live->string;
+    while (at < text.size()) {
+        size_t end = text.find(';', at);
+        if (end == std::string::npos) end = text.size();
+        const std::string entry = text.substr(at, end - at);
+        at = end + 1;
+        std::vector<std::string> f;
+        for (size_t a = 0;;) {
+            const size_t b = entry.find(':', a);
+            f.push_back(entry.substr(a, b == std::string::npos ? std::string::npos : b - a));
+            if (b == std::string::npos) break;
+            a = b + 1;
+        }
+        if (f.size() != 6) continue;
+        const std::string& param = f[0];
+        sd::ModTarget target = modTarget(param, "");
+        double factor = 1; // the parameter's units -> the node's (superdough's own conversions)
+        if (param == "pan") factor = 2;                        // panner.pan = 2 * pan - 1
+        else if (param == "gain") factor = number("velocity", 1); // gain node = gain * velocity
+        else if (param == "velocity") target = sd::ModTarget::Gain, factor = number("gain", 0.8);
+        if (target == sd::ModTarget::None || target == sd::ModTarget::SourceFrequency || target >= sd::ModTarget::ModFrequency)
+            continue; // pitch and other modulators: not live (a new note follows the control)
+        if (out.numModulators >= sd::SoundParams::kMaxModulators) {
+            report("live:max", "[live] more than 8 modulators and live controls on one sound: the others are ignored");
+            break;
+        }
+        sd::Modulator md;
+        md.kind = 4;
+        md.target = target;
+        md.fxi = -1;
+        md.liveKind = int8_t(std::strtol(f[1].c_str(), nullptr, 10));
+        md.liveA = int16_t(std::strtol(f[2].c_str(), nullptr, 10));
+        md.liveB = int8_t(std::strtol(f[3].c_str(), nullptr, 10));
+        md.liveC0 = float(std::strtod(f[4].c_str(), nullptr));
+        md.liveSlope = float(std::strtod(f[5].c_str(), nullptr) * factor);
+        if (!std::isfinite(md.liveSlope) || md.liveSlope == 0) continue;
+        out.modulators[out.numModulators++] = md;
+    }
+}
+
 bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::vector<std::string>& log)
 {
     out = SoundParams{};
@@ -702,6 +753,7 @@ bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::v
 
     // the value's own modulators, after the stages' (FX.forEach in superdough: stages, then main)
     parseModulators(e, -1, out, modIds, report);
+    parseLive(e, out, report);
 
     const ParamValue* type = e.find("__type");
     const ParamValue* name = e.find("__s");

@@ -12,8 +12,17 @@
 //  - macro(n): Concha's 16 automatable macros (DAW parameters "Macro 1..16"), 0..1.
 import { Hap, Pattern, TimeSpan, ref, reify, logger } from '@strudel/core';
 
-const control = (kind, a, b) =>
-  typeof globalThis.__concha_control === 'function' ? globalThis.__concha_control(kind, a, b) : 0;
+// Live controls: query() records the controls a query reads (reads: key -> value), then queries again
+// with one of them moved (override) to learn how each parameter follows it. Key: "kind:a:b".
+export const live = { reads: null, override: null };
+
+const control = (kind, a, b) => {
+  const key = `${kind}:${a}:${b}`;
+  if (live.override && live.override.key === key) return live.override.value;
+  const value = typeof globalThis.__concha_control === 'function' ? globalThis.__concha_control(kind, a, b) : 0;
+  if (live.reads && !live.reads.has(key)) live.reads.set(key, value);
+  return value;
+};
 
 let announced = false;
 function announce(input) {
