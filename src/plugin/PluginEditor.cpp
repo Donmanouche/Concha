@@ -1,5 +1,6 @@
 #include "plugin/PluginEditor.h"
 
+#include "plugin/ui/HostWindow.h"
 #include "plugin/ui/Theme.h"
 
 namespace concha {
@@ -234,6 +235,27 @@ void ConchaEditor::applyZoom()
     repaint();
 }
 
+void ConchaEditor::followHostWindow()
+{
+    if (proc_.wrapperType == juce::AudioProcessor::wrapperType_Standalone) return; // its own window resizes it
+    HostWindowSizes s;
+    if (!hostWindowSizes(getPeer(), s) || s.ownW <= 0 || s.ownH <= 0 || getWidth() <= 0 || getHeight() <= 0) return;
+    const bool first = lastParentW_ < 0;
+    const bool changed = s.parentW != lastParentW_ || s.parentH != lastParentH_;
+    lastParentW_ = s.parentW, lastParentH_ = s.parentH;
+    if (!changed) return; // only a change of the host's window: never fight a resize we asked for
+    if (std::abs(s.parentW - s.ownW) <= 2 && std::abs(s.parentH - s.ownH) <= 2) return;
+    if (first && (s.parentW < s.ownW || s.parentH < s.ownH)) return; // opening: only grow
+    const auto* top = getTopLevelComponent();
+    const double rx = double(s.ownW) / top->getWidth(), ry = double(s.ownH) / top->getHeight();
+    int w = juce::roundToInt(s.parentW / rx), h = juce::roundToInt(s.parentH / ry);
+    if (auto* c = getConstrainer()) {
+        w = juce::jlimit(c->getMinimumWidth(), c->getMaximumWidth(), w);
+        h = juce::jlimit(c->getMinimumHeight(), c->getMaximumHeight(), h);
+    }
+    if (w != getWidth() || h != getHeight()) setSize(w, h);
+}
+
 void ConchaEditor::setZoomSetting(double setting, bool save)
 {
     zoomSetting_ = setting <= 0 ? 0 : juce::jlimit(kZoomMin, kZoomMax, setting);
@@ -349,6 +371,7 @@ void ConchaEditor::timerCallback()
 {
     const auto& v = proc_.transportView();
     const auto s = proc_.patternStatus();
+    if (++hostTicks_ % 15 == 0) followHostWindow();
 
     // after an evaluation: the evaluated code's mini-notation ranges, the known sounds
     if (s.activeGeneration != shownGeneration_) {

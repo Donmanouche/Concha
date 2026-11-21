@@ -4,12 +4,13 @@
 namespace concha {
 
 namespace {
-const char* const kDefaultCode = R"(// Concha: Ctrl+Entrée évalue, Ctrl+. coupe. Le son suit le transport du DAW.
-// Samples : ajoute tes dossiers avec le bouton « Samples », puis s("bd") ou samples('Nom').
-$: note("<c3 eb3 g3 bb2>*2").s("sawtooth").lpf(800).lpenv(2).decay(.2).sustain(0)
-$: note("<[c4,eb4,g4] [bb3,d4,f4]>").s("triangle").attack(.05).release(.5).orbit(2)
-// $: note("c4 e4 g4 b4").ccn(74).ccv(sine.segment(8)).midi()
-)";
+// Older versions started with two lines of help, saved with the projects since: they go.
+juce::String withoutOldHelp(juce::String code)
+{
+    for (const char* start : {"// Concha: Ctrl+Entr", "// Samples : ajoute tes dossiers"})
+        if (code.startsWith(start)) code = code.fromFirstOccurrenceOf("\n", false, false);
+    return code;
+}
 
 // Sink for the scheduler: MIDI into the host's buffer, sounds into superdough.
 struct BlockSink final : AudioScheduler::Sink {
@@ -59,9 +60,8 @@ ConchaProcessor::ConchaProcessor() : AudioProcessor(makeBuses()), state_(*this, 
         if (kind == 1 && a >= 1 && a <= 16) return macros_[size_t(a - 1)]->load(std::memory_order_relaxed);
         return 0.0;
     };
-    state_.state.setProperty("code", kDefaultCode, nullptr);
+    state_.state.setProperty("code", juce::String(), nullptr); // a new instance starts empty
     worker_.start(); // the JS engines start on the pattern thread, the DAW is not blocked
-    worker_.requestEvaluate(kDefaultCode);
 }
 
 ConchaProcessor::~ConchaProcessor() { worker_.stop(); }
@@ -307,6 +307,7 @@ void ConchaProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
         if (xml->hasTagName(state_.state.getType())) {
             state_.replaceState(juce::ValueTree::fromXml(*xml));
+            state_.state.setProperty("code", withoutOldHelp(code()), nullptr);
             for (auto& v : midiCC_) v.store(0.f);
             for (const auto& item : juce::StringArray::fromTokens(state_.state.getProperty("midiCC").toString(), " ", "")) {
                 const auto parts = juce::StringArray::fromTokens(item, ":", "");

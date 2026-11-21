@@ -68,6 +68,8 @@ private:
     void paintChrome(juce::Graphics& g, juce::Rectangle<int> area);
     void layout(juce::Rectangle<int> area);
     void applyZoom();
+    void followHostWindow(); // the host's window grew or shrank without telling us
+    int lastParentW_ = -1, lastParentH_ = -1, hostTicks_ = 0;
     bool zoomKey(const juce::KeyPress& key);
     double zoomSetting_ = 0, zoom_ = 1, hostScale_ = 1;
     std::unique_ptr<Content> content_;

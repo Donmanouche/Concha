@@ -9,19 +9,12 @@
 namespace concha::ui {
 
 namespace {
-const juce::Colour kPanel(0xff151715), kScreen(0xff0a0f0b), kBezel(0xff2c332d), kGrid(0xff2f4a37), kAxis(0xff3f6a4c),
-    kText(0xffd8d8d8), kDim(0xff8a9199), kTitle(0xff8fbf9c), kBox(0xff202320);
+const juce::Colour kPanel(0xff151715), kScreen(0xff0a0f0b), kBezel(0xff2c332d), kGrid(0xff2f4a37), kAxis(0xff3f6a4c);
 // the channel colours of multi-channel oscilloscopes
 const juce::Colour kChannel[] = {juce::Colour(0xffC9E66A), juce::Colour(0xff5DD9E8), juce::Colour(0xffE98BD8),
                                  juce::Colour(0xff7CFC9A), juce::Colour(0xffF5A65B), juce::Colour(0xff9DB4FF)};
 constexpr double kHalfSpan = 1.25; // cycles each side of the trigger: 10 divisions of 1/4 cycle
-constexpr float kReadoutHeight = 30, kPad = 10, kSide = 180;
-
-juce::String noteName(int midi)
-{
-    static const char* names[] = {"c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"};
-    return juce::String(names[((midi % 12) + 12) % 12]) + juce::String(midi / 12 - 1);
-}
+constexpr float kPad = 10;
 
 float drumHeight(const std::string& s)
 {
@@ -45,28 +38,20 @@ ScopeStrip::ScopeStrip()
 
 ScopeStrip::Layout ScopeStrip::layoutFor(const Model& m) const
 {
+    // one screen per kind of visual asked for, side by side, all the same width
     Layout l;
     auto r = getLocalBounds().toFloat().reduced(kPad);
-    l.readouts = r.removeFromBottom(kReadoutHeight);
-    r.removeFromBottom(8);
-    const bool side = m.channels && (m.scope || m.fft);
-    auto right = side ? r.removeFromRight(kSide) : (m.channels ? juce::Rectangle<float>() : r);
-    if (side) r.removeFromRight(kPad);
-    if (m.channels) l.main = r;
-    if (m.scope && m.fft) {
-        if (side) {
-            l.scope = right.removeFromTop((right.getHeight() - kPad) / 2);
-            right.removeFromTop(kPad);
-            l.fft = right;
-        } else {
-            l.scope = right.removeFromLeft((right.getWidth() - kPad) / 2);
-            right.removeFromLeft(kPad);
-            l.fft = right;
-        }
-    } else if (m.scope)
-        l.scope = right;
-    else if (m.fft)
-        l.fft = right;
+    const int n = int(m.channels) + int(m.scope) + int(m.fft);
+    if (n == 0) return l;
+    const float w = (r.getWidth() - kPad * float(n - 1)) / float(n);
+    auto next = [&] {
+        const auto s = r.removeFromLeft(w);
+        r.removeFromLeft(kPad);
+        return s;
+    };
+    if (m.channels) l.main = next();
+    if (m.scope) l.scope = next();
+    if (m.fft) l.fft = next();
     return l;
 }
 
@@ -85,9 +70,6 @@ void ScopeStrip::update(const Model& m)
     Frame v;
     v.segs.reserve(2048);
     const auto l = layoutFor(m);
-    std::vector<Readout> readouts;
-    std::vector<std::pair<juce::Rectangle<float>, juce::String>> labels;
-    std::vector<std::pair<juce::Rectangle<float>, juce::Colour>> labelColours;
 
     // ---- the main screen: the channels ----
     if (!l.main.isEmpty()) {
@@ -121,12 +103,9 @@ void ScopeStrip::update(const Model& m)
                 if (h.end <= m.cycle) return c.withMultipliedAlpha(float(0.5 * (1.0 - 0.6 * (m.cycle - h.end) / kHalfSpan)));
                 return c.withMultipliedAlpha(0.9f);
             };
-            juce::String info;
             if (pitched * 2 < int(haps.size())) { // drums: pulses
                 const float base = bottom - band * 0.18f;
-                int hits = 0;
                 for (const Hap* h : haps) {
-                    if (h->begin >= std::floor(m.cycle) && h->begin < std::floor(m.cycle) + 1) ++hits;
                     if (h->begin < t0 || h->begin > t0 + 2 * kHalfSpan) continue;
                     const float x = xOf(h->begin);
                     const float amp = band * 0.66f * drumHeight(h->s) * std::clamp(h->gain, 0.1f, 1.5f);
@@ -141,7 +120,6 @@ void ScopeStrip::update(const Model& m)
                         prev = p;
                     }
                 }
-                info = juce::String(hits) + " hits/cy";
             } else { // melodies and chords: a level per note
                 if (hi - lo < 4) {
                     const float mid = (hi + lo) / 2;
@@ -170,18 +148,7 @@ void ScopeStrip::update(const Model& m)
                         line(v, {xOf(h->begin), yOf(prev->note)}, {xOf(h->begin), y}, 1.4f, col, 2.5f);
                     prev = h;
                 }
-                if (voices > 1) info = juce::String(voices) + " voices";
-                else if (pitched) {
-                    float rlo = 1e9f, rhi = -1e9f;
-                    for (const Hap* h : haps)
-                        if (!std::isnan(h->note)) rlo = std::min(rlo, h->note), rhi = std::max(rhi, h->note);
-                    info = noteName(int(std::lround(rlo))) + " to " + noteName(int(std::lround(rhi)));
-                }
             }
-            const juce::String name = block < int(m.blockNames.size()) ? juce::String(m.blockNames[size_t(block)]) : juce::String(block + 1);
-            readouts.push_back({"CH" + juce::String(ch + 1) + " " + name, info, c});
-            labels.push_back({{in.getX() + 6, top + 4, 20, 14}, juce::String(ch + 1)});
-            labelColours.push_back({{}, c});
             ++ch;
         }
         // the trigger mark (now)
@@ -189,12 +156,9 @@ void ScopeStrip::update(const Model& m)
         line(v, {cx - 5, in.getY() + 1}, {cx + 5, in.getY() + 1}, 2, juce::Colours::white.withAlpha(0.8f), 0);
         line(v, {cx - 3, in.getY() + 3.5f}, {cx + 3, in.getY() + 3.5f}, 2, juce::Colours::white.withAlpha(0.8f), 0);
         line(v, {cx - 1, in.getY() + 6}, {cx + 1, in.getY() + 6}, 2, juce::Colours::white.withAlpha(0.8f), 0);
-        labels.push_back({{in.getRight() - 40, in.getY() + 4, 36, 14}, "Run"});
-        labelColours.push_back({{}, kTitle});
     }
 
     // ---- SCOPE: the analysed sound from a rising zero crossing ----
-    juce::String scopeInfo;
     if (!l.scope.isEmpty()) {
         screen(v, l.scope, 5, 4);
         const auto in = l.scope.reduced(1);
@@ -220,17 +184,10 @@ void ScopeStrip::update(const Model& m)
             if (lastScope_.size() == trace.size()) draw(lastScope_, kChannel[0].withAlpha(0.3f), 0.9f);
             draw(trace, kChannel[0], 1.4f);
             lastScope_ = trace;
-            const double msPerDiv = span / m.sampleRate * 1000.0 / 5.0;
-            scopeInfo = juce::String(msPerDiv, msPerDiv < 1 ? 2 : 1) + " ms/div";
         }
-        labels.push_back({{in.getX() + 6, in.getY() + 4, 140, 14}, "SCOPE"});
-        labelColours.push_back({{}, kTitle});
-        labels.push_back({{in.getRight() - 84, in.getBottom() - 16, 80, 14}, scopeInfo});
-        labelColours.push_back({{}, kDim});
     }
 
     // ---- FFT: the spectrum on a log frequency axis, -100..0 dB ----
-    juce::String peakInfo, f0Info;
     if (!l.fft.isEmpty()) {
         screen(v, l.fft, 5, 4);
         const auto in = l.fft.reduced(1);
@@ -238,9 +195,6 @@ void ScopeStrip::update(const Model& m)
         const int bins = int(db.size());
         if (bins > 8) {
             const double binHz = m.sampleRate / 2 / bins;
-            int peak = 1;
-            for (int k = 1; k < bins; ++k)
-                if (db[size_t(k)] > db[size_t(peak)]) peak = k;
             juce::Point<float> prev;
             bool started = false;
             for (int px = 0; px <= 120; ++px) { // 120 points along a log axis 20 Hz - 20 kHz, each the loudest bin of its band
@@ -254,30 +208,6 @@ void ScopeStrip::update(const Model& m)
                 prev = p;
                 started = true;
             }
-            peakInfo = "peak " + juce::String(db[size_t(peak)], 1) + " dB";
-            f0Info = "f0 " + juce::String(peak * binHz, 1) + " Hz";
-        }
-        labels.push_back({{in.getX() + 6, in.getY() + 4, 140, 14}, "FFT log"});
-        labelColours.push_back({{}, kTitle});
-        labels.push_back({{in.getRight() - 84, in.getBottom() - 16, 80, 14}, "20 Hz-20k"});
-        labelColours.push_back({{}, kDim});
-    }
-    if (!l.main.isEmpty()) readouts.push_back({"H 1/4 cycle/div", "trig now", kText});
-    if (!l.scope.isEmpty() && l.main.isEmpty()) readouts.push_back({"SCOPE", scopeInfo, kChannel[0]});
-    if (!l.fft.isEmpty()) readouts.push_back({peakInfo.isEmpty() ? "FFT" : peakInfo, f0Info, kChannel[1]});
-
-    for (size_t i = 0; i < labels.size(); ++i) {
-        v.labels.push_back(labels[i]);
-        v.labelColours.push_back(i < labelColours.size() ? labelColours[i].second : kDim);
-    }
-    {
-        auto r = l.readouts;
-        const float w = readouts.empty() ? 0 : std::min(150.0f, (r.getWidth() - 6.0f * float(readouts.size() - 1)) / float(readouts.size()));
-        for (const auto& ro : readouts) {
-            const auto box = r.removeFromLeft(w);
-            r.removeFromLeft(6);
-            v.boxes.push_back({box, {ro.title, ro.info}});
-            v.boxColours.push_back(ro.colour);
         }
     }
     frame_ = std::move(v);
@@ -352,24 +282,6 @@ void ScopeStrip::paint(juce::Graphics& g)
         }
         g.setColour(c);
         g.strokePath(p, juce::PathStrokeType(w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
-    // texts and readouts
-    g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain)));
-    for (size_t i = 0; i < frame_.labels.size(); ++i) {
-        g.setColour(frame_.labelColours[i]);
-        g.drawText(frame_.labels[i].second, frame_.labels[i].first, juce::Justification::topLeft, false);
-    }
-    for (size_t i = 0; i < frame_.boxes.size(); ++i) {
-        const auto box = frame_.boxes[i].first;
-        g.setColour(kBox);
-        g.fillRoundedRectangle(box, 4);
-        g.setColour(frame_.boxColours[i].withAlpha(0.6f));
-        g.drawRoundedRectangle(box.reduced(0.5f), 4, 1);
-        const auto in = box.reduced(8, 2);
-        g.setColour(frame_.boxColours[i]);
-        g.drawText(frame_.boxes[i].second.first, in.withHeight(14), juce::Justification::centredLeft, true);
-        g.setColour(kDim);
-        g.drawText(frame_.boxes[i].second.second, in.withTrimmedTop(in.getHeight() - 13), juce::Justification::centredLeft, true);
     }
 }
 

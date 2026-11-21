@@ -96,7 +96,27 @@ void ReferencePanel::filter()
             }
     }
     list_.updateContent();
+    // the entry read so far stays selected when it still matches, else the first match is shown
+    int row = filtered_.empty() ? -1 : 0;
+    for (size_t i = 0; i < filtered_.size(); ++i)
+        if (filtered_[i] == shown_) row = int(i);
+    if (q.isEmpty() && shown_ == nullptr) row = -1;
+    if (row >= 0) {
+        list_.selectRow(row, false, true);
+        describe(row);
+    } else {
+        list_.deselectAllRows();
+    }
     list_.repaint();
+}
+
+void ReferencePanel::describe(int row)
+{
+    if (row < 0 || row >= int(filtered_.size())) return;
+    if (shown_ == filtered_[size_t(row)] && detail_.getText().isNotEmpty()) return;
+    shown_ = filtered_[size_t(row)];
+    detail_.setText(DocIndex::describe(*shown_), false);
+    detail_.moveCaretToTop(false);
 }
 
 void ReferencePanel::show(const DocEntry* entry, const juce::String& as)
@@ -108,6 +128,7 @@ void ReferencePanel::show(const DocEntry* entry, const juce::String& as)
             list_.scrollToEnsureRowIsOnscreen(int(i));
             break;
         }
+    shown_ = entry;
     detail_.setText(DocIndex::describe(*entry, as), false);
     detail_.moveCaretToTop(false);
 }
@@ -121,12 +142,9 @@ void ReferencePanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, 
     g.drawText(filtered_[size_t(row)]->name, 10, 0, w - 20, h, juce::Justification::centredLeft, true);
 }
 
-void ReferencePanel::selectedRowsChanged(int row)
-{
-    if (row < 0 || row >= int(filtered_.size())) return;
-    detail_.setText(DocIndex::describe(*filtered_[size_t(row)]), false);
-    detail_.moveCaretToTop(false);
-}
+void ReferencePanel::selectedRowsChanged(int row) { describe(row); } // a click or the arrow keys
+
+void ReferencePanel::listBoxItemClicked(int row, const juce::MouseEvent&) { describe(row); }
 
 void ReferencePanel::listBoxItemDoubleClicked(int row, const juce::MouseEvent&)
 {
@@ -147,7 +165,7 @@ void ReferencePanel::resized()
 void ReferencePanel::paint(juce::Graphics& g)
 {
     title(g, getLocalBounds().reduced(8, 4).removeFromTop(16),
-          juce::String(int(DocIndex::instance().entries().size())) + " functions - double click to insert");
+          juce::String(int(DocIndex::instance().entries().size())) + " functions - click to read, double click to insert");
 }
 
 // ---------------------------------------------------------------------------------------------

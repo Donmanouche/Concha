@@ -57,6 +57,24 @@ int main(int argc, char** argv)
         editor->addToDesktop(juce::ComponentPeer::windowIsTemporary);
         editor->setVisible(true);
     }
+    // CONCHA_SHOT_HOSTWIN=1: the editor inside a host window that grows by itself (Bitwig maximised)
+    std::unique_ptr<juce::Component> hostWindow;
+    if (std::getenv("CONCHA_SHOT_HOSTWIN")) {
+        hostWindow = std::make_unique<juce::Component>();
+        hostWindow->setBounds(-4000, -4000, w, h);
+        hostWindow->addToDesktop(juce::ComponentPeer::windowIsTemporary);
+        hostWindow->setVisible(true);
+        editor->addToDesktop(0, hostWindow->getPeer()->getNativeHandle());
+        editor->setVisible(true);
+        juce::Timer::callAfterDelay(800, [&] { hostWindow->setSize(w + 400, h + 300); });
+        juce::Timer::callAfterDelay(1600, [&] {
+            std::fprintf(stderr, "host window %dx%d, editor %dx%d\n", hostWindow->getWidth(), hostWindow->getHeight(), editor->getWidth(), editor->getHeight());
+            hostWindow->setSize(w + 100, h + 50);
+        });
+        juce::Timer::callAfterDelay(2400, [&] {
+            std::fprintf(stderr, "host window %dx%d, editor %dx%d\n", hostWindow->getWidth(), hostWindow->getHeight(), editor->getWidth(), editor->getHeight());
+        });
+    }
     // let the engine start, evaluate, play a while: the message loop runs the editor's timer
     const int playMs = argc > 5 ? juce::String(argv[5]).getIntValue() : 2500;
     const juce::String outPath(argv[2]);
@@ -166,6 +184,7 @@ int main(int argc, char** argv)
     run = false;
     audio.join();
     editor.reset();
+    hostWindow.reset();
     proc.reset();
     std::printf("wrote %s\n", argv[2]);
     return 0;

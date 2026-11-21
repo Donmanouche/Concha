@@ -6,6 +6,7 @@
 //    is the centre, 1/4 cycle per division; what has played stays dimmed (the phosphor's afterglow);
 //  - SCOPE (.scope()): the analysed sound, aligned on a rising zero crossing;
 //  - FFT (.spectrum() / .fscope()): its spectrum on a logarithmic frequency axis.
+// One screen per kind of visual asked for, side by side, all the same width. Only the traces: no text.
 // Painted in software like the rest of the window: the screens and graticules are drawn once into an
 // image, each frame adds the traces (batched paths) and the texts. No OpenGL: on Linux, an OpenGL
 // context in a plug-in window holds the X11 lock while the driver waits for a buffer, which froze the
@@ -48,7 +49,7 @@ public:
 
 private:
     struct Layout {
-        juce::Rectangle<float> main, scope, fft, readouts;
+        juce::Rectangle<float> main, scope, fft;
     };
     struct Seg {
         juce::Point<float> a, b;
@@ -63,14 +64,6 @@ private:
     struct Frame {
         std::vector<Seg> segs;
         std::vector<Screen> screens;
-        std::vector<std::pair<juce::Rectangle<float>, juce::String>> labels;
-        std::vector<juce::Colour> labelColours;
-        std::vector<std::pair<juce::Rectangle<float>, std::pair<juce::String, juce::String>>> boxes;
-        std::vector<juce::Colour> boxColours;
-    };
-    struct Readout {
-        juce::String title, info;
-        juce::Colour colour;
     };
 
     Layout layoutFor(const Model& m) const;

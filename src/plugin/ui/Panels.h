@@ -37,12 +37,15 @@ private:
     int getNumRows() override { return int(filtered_.size()); }
     void paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool selected) override;
     void selectedRowsChanged(int row) override;
+    void listBoxItemClicked(int row, const juce::MouseEvent&) override;
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
     void filter();
+    void describe(int row);
 
     juce::TextEditor search_;
     juce::ListBox list_;
     juce::TextEditor detail_;
+    const DocEntry* shown_ = nullptr;
     std::vector<const DocEntry*> filtered_;
 };
 
