@@ -33,10 +33,32 @@ add_library(concha_sc_tlsf STATIC "${SC}/external_libraries/TLSF-2.4.6/src/tlsf.
 target_compile_definitions(concha_sc_tlsf PRIVATE TLSF_STATISTIC=1)
 target_include_directories(concha_sc_tlsf PUBLIC "${SC}/external_libraries/TLSF-2.4.6/src")
 
+# SC_Node.cpp, with a node's memory cleared when it is allocated: some UGens read a field before
+# setting it (sc3-plugins' StkFlute: trig), and their sound then depends on what the pool held before.
+# scsynth's freshly allocated pool is mostly zeros; a plug-in's World is reused for hours.
+file(READ "${SCS}/SC_Node.cpp" concha_sc_node)
+set(concha_sc_node_alloc "Node* node = (Node*)World_Alloc(inWorld, def->mAllocSize);")
+string(FIND "${concha_sc_node}" "${concha_sc_node_alloc}" concha_at)
+if(concha_at EQUAL -1)
+    message(FATAL_ERROR "SC_Node.cpp: Node_New's allocation not found")
+endif()
+string(REPLACE "${concha_sc_node_alloc}"
+    "${concha_sc_node_alloc}\n    if (node) memset(node, 0, def->mAllocSize); // Concha (cmake/ScSynth.cmake)"
+    concha_sc_node "#include <cstring>\n${concha_sc_node}")
+set(concha_sc_node_out "${PROJECT_BINARY_DIR}/sc/SC_Node.cpp")
+if(EXISTS "${concha_sc_node_out}")
+    file(READ "${concha_sc_node_out}" concha_old)
+else()
+    set(concha_old "")
+endif()
+if(NOT concha_old STREQUAL concha_sc_node)
+    file(WRITE "${concha_sc_node_out}" "${concha_sc_node}")
+endif()
+
 set(concha_scsynth_sources
     ${SCS}/SC_BufGen.cpp ${SCS}/SC_ComPort.cpp ${SCS}/SC_CoreAudio.cpp ${SCS}/SC_Graph.cpp
     ${SCS}/SC_GraphDef.cpp ${SCS}/SC_Group.cpp ${SCS}/SC_Lib_Cintf.cpp ${SCS}/SC_Lib.cpp
-    ${SCS}/SC_MiscCmds.cpp ${SCS}/SC_Node.cpp ${SCS}/SC_Rate.cpp ${SCS}/SC_SequencedCommand.cpp
+    ${SCS}/SC_MiscCmds.cpp ${PROJECT_BINARY_DIR}/sc/SC_Node.cpp ${SCS}/SC_Rate.cpp ${SCS}/SC_SequencedCommand.cpp
     ${SCS}/SC_Str4.cpp ${SCS}/SC_Unit.cpp ${SCS}/SC_UnitDef.cpp ${SCS}/SC_World.cpp ${SCS}/Rendezvous.cpp
     ${SC}/common/SC_Filesystem_unix.cpp ${SC}/common/SC_fftlib.cpp ${SC}/common/fftlib.c
     ${SC}/common/SC_AllocPool.cpp ${SC}/common/SC_Errors.cpp ${SC}/common/SC_Reply.cpp
@@ -65,7 +87,8 @@ target_compile_options(concha_scsynth PRIVATE -w)
 target_link_libraries(concha_scsynth PUBLIC concha_sc_boost concha_sc_tlsf PkgConfig::CONCHA_SNDFILE Threads::Threads ${CMAKE_DL_LIBS})
 
 # ---- UGens, compiled in (STATIC_PLUGINS): no dependency on an installed SuperCollider ----
-# SuperCollider's own plug-ins, and the sc3-plugins families SuperDirt's SynthDefs use.
+# SuperCollider's own plug-ins, and the sc3-plugins families SuperDirt's SynthDefs use (the rest
+# of sc3-plugins: cmake/Sc3Plugins.cmake).
 # Each plug-in's PluginLoad(Name) becomes Name_Load(); scsynth calls the core ones from
 # initialize_library(), concha_sc_new() calls the others (src/sc/SC_HostDriver.cpp).
 set(CONCHA_SC3_DIR "${CONCHA_SHARED_DEPS}/sc3-plugins-3.13.0" CACHE PATH "sc3-plugins source checkout")
@@ -120,6 +143,7 @@ foreach(group fft pv3 ml unpack joshpv)
     target_compile_options(concha_sc_ugens_${group} PRIVATE -w -fno-finite-math-only)
     target_sources(concha_sc_ugens PRIVATE $<TARGET_OBJECTS:concha_sc_ugens_${group}>)
 endforeach()
+include(${CMAKE_CURRENT_LIST_DIR}/Sc3Plugins.cmake) # every other sc3-plugins UGen
 target_compile_definitions(concha_scsynth PRIVATE STATIC_PLUGINS)
 target_link_libraries(concha_scsynth PUBLIC concha_sc_ugens)
 

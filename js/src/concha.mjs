@@ -274,5 +274,5 @@ globalThis.concha = {
   },
   hasFrames: canvas.hasFrames,
   setViewport: canvas.setViewport,
-  version: '0.1.0',
+  version: '0.1.1',
 };

@@ -64,6 +64,16 @@ void ScHost::loadNewDefs()
     for (int i = loadedDefs_.load(); i < n; ++i) {
         const ScDef& d = scDef(i);
         if (!d.instrument || d.bytes.empty() || (d.owned && d.owned.get() == lastFile)) continue;
+        if (d.owned) { // a user's SynthDef: scsynth refuses it when a UGen is missing (sc3-plugins...)
+            std::string missing;
+            for (const auto& u : d.ugens)
+                if (!concha_sc_has_ugen(u.c_str())) missing += (missing.empty() ? "" : ", ") + u;
+            if (!missing.empty()) {
+                reportSynthDefProblem(i, "SynthDef " + d.name + " (" + d.source + ") uses UGens Concha does not have: " +
+                                             missing + "; it cannot play");
+                continue;
+            }
+        }
         lastFile = d.owned.get();
         std::vector<char> m;
         Writer w{m};

@@ -42,7 +42,9 @@ LibraryPanel::LibraryPanel(std::function<void()> onChanged) : onChanged_(std::mo
     addAndMakeVisible(close_);
     folders_ = lib::SampleLibrary::instance().folders();
     rebuild();
-    defsHelp_.setText("Folders of SynthDefs (.scsyndef, e.g. from SynthDef(...).writeDefFile(path) in SuperCollider). "
+    defsHelp_.setText("Folders of SynthDefs (.scsyndef, e.g. from SynthDef(...).writeDefFile(path) in SuperCollider; "
+                      "without a path, or with .store, SuperCollider writes them in its own synthdefs folder, where "
+                      "\"Add\" opens). "
                       "Each SynthDef plays with s(\"name\") like StrudelDirt's instruments; its controls take the "
                       "pattern's values of the same name. Changed files are read again at each evaluation.",
                       juce::dontSendNotification);
@@ -179,7 +181,19 @@ void LibraryPanel::rebuildDefs()
 
 void LibraryPanel::addDefFolder()
 {
-    chooser_ = std::make_unique<juce::FileChooser>("SynthDef folder", juce::File::getSpecialLocation(juce::File::userHomeDirectory));
+    // where SuperCollider writes them (writeDefFile() without a folder, .store): a hidden folder
+    // the dialog would not show from the home folder
+    juce::File start = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+#if JUCE_LINUX || JUCE_BSD
+    if (auto sc = start.getChildFile(".local/share/SuperCollider/synthdefs"); sc.isDirectory()) start = sc;
+#elif JUCE_MAC
+    if (auto sc = start.getChildFile("Library/Application Support/SuperCollider/synthdefs"); sc.isDirectory()) start = sc;
+#elif JUCE_WINDOWS
+    if (auto sc = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("SuperCollider/synthdefs");
+        sc.isDirectory())
+        start = sc;
+#endif
+    chooser_ = std::make_unique<juce::FileChooser>("SynthDef folder", start);
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
                           [this](const juce::FileChooser& fc) {
                               const auto dir = fc.getResult();

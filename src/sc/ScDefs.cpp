@@ -1,6 +1,7 @@
 #include "sc/ScDefs.h"
 
 #include <array>
+#include <cctype>
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
@@ -113,16 +114,31 @@ const ScDef& scDef(int index)
     return userDefs().defs[size_t(index - int(b.size()))];
 }
 
+namespace {
+bool sameName(std::string_view a, std::string_view b, bool anyCase)
+{
+    if (!anyCase) return a == b;
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::tolower(uint8_t(a[i])) != std::tolower(uint8_t(b[i]))) return false;
+    return true;
+}
+} // namespace
+
+// The exact name first, then any case: sound names reach C++ in lower case (s("myBass") is
+// "mybass" after the sound registry, as in superdough), a SynthDef keeps its own (\myBass).
 int scDefIndex(std::string_view name, bool builtinOnly)
 {
     const auto& defs = scDefs();
-    if (!builtinOnly) {
-        auto& u = userDefs();
-        for (int i = u.count.load(std::memory_order_acquire) - 1; i >= 0; --i)
-            if (u.defs[size_t(i)].name == name) return int(defs.size()) + i;
+    for (const bool anyCase : {false, true}) {
+        if (!builtinOnly) {
+            auto& u = userDefs();
+            for (int i = u.count.load(std::memory_order_acquire) - 1; i >= 0; --i)
+                if (sameName(u.defs[size_t(i)].name, name, anyCase)) return int(defs.size()) + i;
+        }
+        for (size_t i = 0; i < defs.size(); ++i)
+            if (sameName(defs[i].name, name, anyCase)) return int(i);
     }
-    for (size_t i = 0; i < defs.size(); ++i)
-        if (defs[i].name == name) return int(i);
     return -1;
 }
 
@@ -210,7 +226,8 @@ bool parseSynthDefFile(std::string_view bytes, std::vector<ScDef>& out, std::str
             }
         const uint32_t numUGens = r.u(w);
         for (uint32_t k = 0; k < numUGens && !r.bad; ++k) {
-            r.pstr();       // class
+            std::string cls = r.pstr(); // class
+            if (std::find(def.ugens.begin(), def.ugens.end(), cls) == def.ugens.end()) def.ugens.push_back(std::move(cls));
             r.skip(1);      // rate
             const uint32_t ins = r.u(w), outs = r.u(w);
             r.skip(2);      // special index
@@ -284,6 +301,37 @@ std::vector<std::string> loadUserSynthDefFolders(const std::vector<std::string>&
         if (added > 0) messages.push_back("loaded " + std::to_string(added) + " SynthDef" + (added > 1 ? "s" : "") + " from " + root);
     }
     return messages;
+}
+
+namespace {
+struct Problems {
+    std::mutex mutex;
+    std::vector<bool> reported; // by SynthDef index
+    std::vector<std::string> pending;
+};
+Problems& problems()
+{
+    static Problems p;
+    return p;
+}
+} // namespace
+
+void reportSynthDefProblem(int index, std::string message)
+{
+    auto& p = problems();
+    std::lock_guard<std::mutex> lock(p.mutex);
+    if (index < 0) return;
+    if (size_t(index) >= p.reported.size()) p.reported.resize(size_t(index) + 1, false);
+    if (p.reported[size_t(index)]) return;
+    p.reported[size_t(index)] = true;
+    p.pending.push_back(std::move(message));
+}
+
+std::vector<std::string> takeSynthDefProblems()
+{
+    auto& p = problems();
+    std::lock_guard<std::mutex> lock(p.mutex);
+    return std::exchange(p.pending, {});
 }
 
 int scControlIndex(const ScDef& def, std::string_view control)

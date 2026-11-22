@@ -42,6 +42,9 @@ __attribute__((visibility("default"))) int concha_sc_sync(ConchaScWorld* world, 
 __attribute__((visibility("default"))) int concha_sc_queue_rt(ConchaScWorld* world, const char* message, int size,
                                                                int64_t oscTime);
 
+// 1 when a UGen of that class name is installed (built in). After a first concha_sc_new.
+__attribute__((visibility("default"))) int concha_sc_has_ugen(const char* name);
+
 __attribute__((visibility("default"))) int concha_sc_block_size(ConchaScWorld* world);
 __attribute__((visibility("default"))) int64_t concha_sc_seconds_to_osc(double seconds);
 

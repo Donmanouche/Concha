@@ -10,6 +10,7 @@
 #include "SC_CoreAudio.h"
 #include "SC_HiddenWorld.h"
 #include "SC_Prototypes.h"
+#include "SC_Str4.h"
 #include "SC_Time.hpp"
 #include "SC_WorldOptions.h"
 
@@ -191,6 +192,8 @@ void Blackrain_Load(InterfaceTable*);
 void MCLDOsc_Load(InterfaceTable*);
 void JoshPV_Load(InterfaceTable*);
 void ConchaUI_Load(InterfaceTable*);
+void concha_sc3_load_all(InterfaceTable*); // the rest of sc3-plugins (cmake/Sc3Plugins.cmake)
+void concha_stk_extract_rawwaves();         // src/sc/StkRawwaves.h
 
 namespace {
 void loadExtraUGens()
@@ -202,6 +205,10 @@ void loadExtraUGens()
                       MCLDDistortion_Load, Membrane_Load, Mda_Load, FM7_Load, AY_Load, Ladspa_Load, Blackrain_Load,
                       MCLDOsc_Load, JoshPV_Load, ConchaUI_Load})
         load(&gInterfaceTable);
+#ifdef CONCHA_SC3_STK
+    concha_stk_extract_rawwaves(); // STK's wave tables, read from Concha's cache
+#endif
+    concha_sc3_load_all(&gInterfaceTable);
 }
 } // namespace
 
@@ -235,6 +242,14 @@ ConchaScWorld* concha_sc_new(const ConchaScOptions* o)
     World* world = World_New(&options); // the first one runs initialize_library() (core UGens)
     if (world) loadExtraUGens();
     return reinterpret_cast<ConchaScWorld*>(world);
+}
+
+int concha_sc_has_ugen(const char* name)
+{
+    if (!name || std::strlen(name) >= size_t(kSCNameByteLen)) return 0;
+    int32 key[kSCNameLen];
+    str4cpy(key, name);
+    return GetUnitDef(key) ? 1 : 0;
 }
 
 void concha_sc_free(ConchaScWorld* w)

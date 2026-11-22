@@ -236,6 +236,8 @@ void PatternWorker::queryLoop()
 
         runQueries(t);
         if (libraryRefresh_.exchange(false)) refreshLibrary();
+        // a World refused a user's SynthDef (ScHost::loadNewDefs, on any thread): to the console
+        for (auto& m : sc::takeSynthDefProblems()) log("warning", std::move(m));
         playMidiNotes(t);
         flushExternals(t);
         runChannelQueries(t);

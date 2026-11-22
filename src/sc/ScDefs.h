@@ -19,6 +19,7 @@ struct ScDef {
     std::string_view bytes; // the .scsyndef file
     std::shared_ptr<const std::string> owned; // a user's file (bytes points into it)
     std::string source; // a user's file path
+    std::vector<std::string> ugens; // a user's SynthDef: its UGens' class names (each once)
 };
 
 // StrudelDirt's (built in, immutable)
@@ -39,5 +40,10 @@ bool parseSynthDefFile(std::string_view bytes, std::vector<ScDef>& out, std::str
 // since the last call and appends their SynthDefs as instruments. Returns the messages (errors,
 // "loaded n SynthDefs from ..."). Any thread (serialised).
 std::vector<std::string> loadUserSynthDefFolders(const std::vector<std::string>& paths);
+
+// Problems found when a World receives a user's SynthDef (UGens Concha does not have), reported
+// once per SynthDef whatever the number of Worlds; taken (and cleared) by the console's writer.
+void reportSynthDefProblem(int index, std::string message);
+std::vector<std::string> takeSynthDefProblems();
 
 } // namespace concha::sc
