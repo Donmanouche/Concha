@@ -879,6 +879,7 @@ bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::v
         out.scCps = control("cps");
         out.scCycle = control("cycle");
         out.scTotal = control("totalDuration");
+        out.scGate = control("gate");
         out.scRelease = control("release");
         out.scSpeed = control("speed");
         out.scEndSpeed = control("endSpeed");

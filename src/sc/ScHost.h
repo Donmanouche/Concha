@@ -31,6 +31,7 @@ public:
 
     int start(int def, const sd::SynthArg* args, int numArgs, int64_t onset, int64_t& readFrom) override;
     void stop(int slot) override;
+    void set(int slot, int control, float value, int64_t at) override;
     void renderTo(int64_t end) override;
     float sample(int slot, int channel, int64_t absolute) const override
     {

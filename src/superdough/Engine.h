@@ -46,6 +46,7 @@ namespace concha::sd {
 class Engine {
 public:
     static constexpr int kMaxVoices = 192;    // 128 playing + voices fading out
+    static constexpr double kGateTail = 60.0; // a gated SynthDef's release, at most (s) after its note
     static constexpr int kMaxPolyphony = 128; // superdough DEFAULT_MAX_POLYPHONY
     static constexpr int kMaxFilters = 6;
     static constexpr int kMaxOrbits = 32;

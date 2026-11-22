@@ -282,6 +282,13 @@ std::vector<std::string> loadUserSynthDefFolders(const std::vector<std::string>&
                 messages.push_back(f.string() + ": " + error);
                 continue;
             }
+            // one SynthDef: also under the file's name, when it is another one (s("AmbientTextures"))
+            if (defs.size() == 1 && f.stem().string() != defs[0].name) {
+                ScDef alias = defs[0];
+                alias.serverName = alias.name;
+                alias.name = f.stem().string();
+                defs.push_back(std::move(alias));
+            }
             // a file of one SynthDef is sent as is; several get one /d_recv for the file
             for (auto& d : defs) {
                 const int n = u.count.load(std::memory_order_relaxed);
@@ -293,9 +300,12 @@ std::vector<std::string> loadUserSynthDefFolders(const std::vector<std::string>&
                 d.owned = data;
                 d.bytes = *data;
                 d.source = f.string();
+                if (d.serverName.empty()) ++added;
+                else
+                    messages.push_back("SynthDef " + d.serverName + " (" + f.filename().string() + ") also plays as s(\"" +
+                                       d.name + "\")");
                 u.defs[size_t(n)] = std::move(d);
                 u.count.store(n + 1, std::memory_order_release);
-                ++added;
             }
         }
         if (added > 0) messages.push_back("loaded " + std::to_string(added) + " SynthDef" + (added > 1 ? "s" : "") + " from " + root);

@@ -19,6 +19,7 @@ struct ScDef {
     std::string_view bytes; // the .scsyndef file
     std::shared_ptr<const std::string> owned; // a user's file (bytes points into it)
     std::string source; // a user's file path
+    std::string serverName; // scsynth's name when `name` is another (a file's name for its only SynthDef)
     std::vector<std::string> ugens; // a user's SynthDef: its UGens' class names (each once)
 };
 
@@ -37,7 +38,8 @@ int scControlIndex(const ScDef& def, std::string_view control); // -1 when the d
 // control's further slots named "<name>[k]"), defaults. False with a message when unreadable.
 bool parseSynthDefFile(std::string_view bytes, std::vector<ScDef>& out, std::string& error);
 // The user's SynthDef folders: reads the .scsyndef files (recursively) that are new or changed
-// since the last call and appends their SynthDefs as instruments. Returns the messages (errors,
+// since the last call and appends their SynthDefs as instruments. A file holding one SynthDef
+// also plays under the file's name (AmbientTextures.scsyndef holding \task_efef68ae-...). Returns the messages (errors,
 // "loaded n SynthDefs from ..."). Any thread (serialised).
 std::vector<std::string> loadUserSynthDefFolders(const std::vector<std::string>& paths);
 

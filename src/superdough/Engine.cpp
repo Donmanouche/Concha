@@ -679,6 +679,12 @@ struct Engine::Voice : Engine::FxStage {
     int scSlot = -1;           // ScSynth: the synth server's slot
     int64_t scReadFrom = 0;    // its output's first sample (absolute)
     double scTotal = 0;        // dirt_gate: totalDuration
+    // a SynthDef with a gate: its control, the absolute sample it closes at, then how long its output
+    // has been silent (the synth freed itself: the voice ends)
+    int scGate = -1;
+    bool scGateClosed = false;
+    int64_t scGateAt = 0;
+    int scSilent = 0;
     int analyze = 0, fftSize = 8192; // .analyze(id): this voice feeds analyser id
     // strudel_envelope: Env.adsr(attack.max(0.001), decay, hold, release, 1, curve), gate held for
     // sustain, times amp
@@ -741,6 +747,7 @@ double dirtEnvelope(double t, const Engine::Voice& v)
     };
     if (t < v.scHoldTime) return adsr(t);
     const double from = adsr(v.scHoldTime);
+    if (v.scGate >= 0) return from; // the synth releases itself when its gate closes
     if (v.scRelease <= 0) return 0;
     return envCurve(from, 0, (t - v.scHoldTime) / v.scRelease, v.scCurve);
 }
@@ -1766,6 +1773,13 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
         v.scSlot = slot;
         v.scReadFrom = readFrom;
         v.scTotal = total;
+        v.scGate = p.scGate;
+        v.scGateClosed = false;
+        v.scSilent = 0;
+        if (p.scGate >= 0) { // gate 0 at the note's end; the voice lasts until the synth frees itself
+            v.scGateAt = absSample_ + offset + int64_t(std::llround(sustain * sampleRate_));
+            v.scTotal = sustain + kGateTail;
+        }
         v.scAttack = env.attack;
         v.scDecay = env.decay;
         v.scLevel = env.level;
@@ -1773,7 +1787,7 @@ bool Engine::start(Voice& v, int offset, const SoundParams& p, double duration, 
         v.scCurve = env.curve;
         v.scHoldTime = sustain;
         v.scAmp = env.amp;
-        sourceStop = total;
+        sourceStop = v.scTotal;
         v.sourceGain = 1.0;
     } else {
         return false;
@@ -2470,6 +2484,11 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
         int64_t need = absSample_ + numSamples;
         for (const auto& v : *voices_)
             if (v.active && v.scSlot >= 0) need = std::max(need, v.scReadFrom + v.index + int64_t(numSamples));
+        for (auto& v : *voices_) // gates closing before `need`: queued before the World renders there
+            if (v.active && v.scSlot >= 0 && v.scGate >= 0 && !v.scGateClosed && v.scGateAt < need) {
+                synthServer_->set(v.scSlot, v.scGate, 0.f, v.scGateAt);
+                v.scGateClosed = true;
+            }
         synthServer_->renderTo(need);
     }
     auto renderVoice = [&](Voice& v) {
@@ -2737,8 +2756,14 @@ void Engine::render(float* const* const* buses, int numBuses, int numSamples)
                     env *= dirtEnvelope(t, v) * v.scAmp;
                     if (v.scSlot >= 0) {
                         const int64_t at = v.scReadFrom + v.index;
-                        l = float(synthServer_->sample(v.scSlot, 0, at) * env);
-                        r = float(synthServer_->sample(v.scSlot, 1, at) * env);
+                        const float gl = synthServer_->sample(v.scSlot, 0, at), gr = synthServer_->sample(v.scSlot, 1, at);
+                        l = float(gl * env);
+                        r = float(gr * env);
+                        // gate closed: the synth freed itself once its output stays at exactly 0
+                        if (v.scGateClosed && at > v.scGateAt) {
+                            v.scSilent = gl == 0.f && gr == 0.f ? v.scSilent + 1 : 0;
+                            if (v.scSilent > int(0.25 * sampleRate_)) v.endTime = std::min(v.endTime, t);
+                        }
                     }
                     ch = 2;
                 } else if (v.sample && !v.sampleEnded && t >= v.sampleStart) {

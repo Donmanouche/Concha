@@ -139,6 +139,9 @@ struct SoundParams {
     uint8_t numScArgs = 0;
     SynthArg scArgs[48];
     int8_t scSustain = -1, scDelta = -1, scCps = -1, scCycle = -1, scTotal = -1, scRelease = -1, scSpeed = -1, scEndSpeed = -1;
+    // a SynthDef with a `gate` control (a user's Env.adsr / Env.asr...): gate 0 when the note ends, and
+    // the synth's own release is heard (the voice lasts until the synth frees itself)
+    int8_t scGate = -1;
     float scSpeedValue = 1, scAccelerate = std::numeric_limits<float>::quiet_NaN();
     float scSustainValue = std::numeric_limits<float>::quiet_NaN(), scClip = 1, scReleaseValue = 0.01f;
     // StrudelDirt's envelope module (strudel_envelope, on every note: release defaults to 0.01):

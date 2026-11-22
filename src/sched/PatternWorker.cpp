@@ -94,7 +94,7 @@ void PatternWorker::refreshLibrary()
     PatternEngine& engine = *engines_[active_];
     if (options_.library) {
         for (auto& m : sc::loadUserSynthDefFolders(options_.library->synthDefFolders()))
-            log(m.rfind("loaded", 0) == 0 ? "info" : "warning", std::move(m));
+            log(m.rfind("loaded", 0) == 0 || m.find(") also plays as") != std::string::npos ? "info" : "warning", std::move(m));
         const int n = sc::scDefCount();
         if (n != registeredDefs_[active_]) {
             if (options_.onNewSynthDefs) options_.onNewSynthDefs();
@@ -268,7 +268,7 @@ void PatternWorker::evalLoop()
         }
         if (options_.library) { // the user's SynthDefs: new or changed .scsyndef files
             for (auto& m : sc::loadUserSynthDefFolders(options_.library->synthDefFolders()))
-                log(m.rfind("loaded", 0) == 0 ? "info" : "warning", std::move(m));
+                log(m.rfind("loaded", 0) == 0 || m.find(") also plays as") != std::string::npos ? "info" : "warning", std::move(m));
             const int n = sc::scDefCount();
             int& registered = registeredDefs_[standby == engines_[0].get() ? 0 : 1];
             if (n != registered) {

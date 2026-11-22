@@ -20,6 +20,8 @@ public:
     // voice reads the slot from there, as StrudelDirt's dirt_gate OffsetOuts it).
     virtual int start(int def, const SynthArg* args, int numArgs, int64_t onset, int64_t& readFrom) = 0;
     virtual void stop(int slot) = 0; // frees the synth, the slot can be reused
+    // Sets one of the synth's controls at absolute sample `at` (a gate closing: /n_set). Audio thread.
+    virtual void set(int slot, int control, float value, int64_t at) { (void)slot, (void)control, (void)value, (void)at; }
     // Renders up to absolute sample `end` (excluded); then sample() is valid up to there.
     virtual void renderTo(int64_t end) = 0;
     virtual float sample(int slot, int channel, int64_t absolute) const = 0;

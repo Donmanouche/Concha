@@ -64,6 +64,7 @@ void ScHost::loadNewDefs()
     for (int i = loadedDefs_.load(); i < n; ++i) {
         const ScDef& d = scDef(i);
         if (!d.instrument || d.bytes.empty() || (d.owned && d.owned.get() == lastFile)) continue;
+        lastFile = d.owned.get(); // its other SynthDefs (or its file-name alias): the same /d_recv
         if (d.owned) { // a user's SynthDef: scsynth refuses it when a UGen is missing (sc3-plugins...)
             std::string missing;
             for (const auto& u : d.ugens)
@@ -74,7 +75,6 @@ void ScHost::loadNewDefs()
                 continue;
             }
         }
-        lastFile = d.owned.get();
         std::vector<char> m;
         Writer w{m};
         w.str("/d_recv");
@@ -119,7 +119,7 @@ int ScHost::start(int def, const sd::SynthArg* args, int numArgs, int64_t onset,
     numArgs = std::min(numArgs, 64);
     for (int i = 0; i < numArgs; ++i) std::memcpy(tags + 7 + 2 * i, "if", 3);
     w.str(tags);
-    w.str(d.name);
+    w.str(d.serverName.empty() ? d.name : d.serverName);
     w.i32(node);
     w.i32(1);
     w.i32(0);
@@ -136,6 +136,19 @@ int ScHost::start(int def, const sd::SynthArg* args, int numArgs, int64_t onset,
     node_[size_t(slot)] = node;
     readFrom = (at / 64) * 64; // Out.ar: from the start of its block
     return slot;
+}
+
+void ScHost::set(int slot, int control, float value, int64_t at)
+{
+    if (slot < 0 || slot >= kSlots || !busy_[size_t(slot)]) return;
+    msg_.clear();
+    Writer w{msg_};
+    w.str("/n_set");
+    w.str(",iif");
+    w.i32(node_[size_t(slot)]);
+    w.i32(control);
+    w.f32(value);
+    concha_sc_queue_rt(world_, msg_.data(), int(msg_.size()), oscTime(std::max(at, rendered_)));
 }
 
 void ScHost::stop(int slot)
