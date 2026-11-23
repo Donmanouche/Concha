@@ -89,10 +89,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ConchaProcessor::createLayou
     layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{"beatsPerCycle", 1}, "Beats per cycle", 1, 32, 4));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"freeRun", 1}, "Free run", false));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"syncProbe", 1}, "Sync probe", false));
-    for (int i = 1; i <= 16; ++i) // macro(n) in patterns
-        layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"macro" + juce::String(i), 1}, "Macro " + juce::String(i),
-                                                               0.0f, 1.0f, 0.0f));
-    for (int i = 1; i <= kNumMacros; ++i)
+    for (int i = 1; i <= kNumMacros; ++i) // macro(n) in patterns
         layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"macro" + juce::String(i), 1},
                                                                "Macro " + juce::String(i),
                                                                juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));

@@ -33,7 +33,8 @@ const char* const kHandled[] = {"s", "bank", "note", "freq", "duration", "channe
                                 "psrate", "psdisp", "tilt", "plat", "tremolorate", "waveloss", "squiz", "fshift", "fshiftphase",
                                 "fshiftnote", "triode", "krush", "kcutoff", "octer", "octersub", "octersubsub", "ring", "ringf",
                                 "ringdf", "distort2", "tsdelay", "xsdelay", "freeze", "comb", "smear", "scram", "binshift", "hbrick",
-                                "lbrick", "real", "imag", "enhance", "workletSrc", "workletInputs"};
+                                "lbrick", "real", "imag", "enhance", "workletSrc", "workletInputs",
+                                "byteBeatExpression", "byteBeatStartTime"}; // bytebeat: rendered by sounds.mjs
 
 // A tiny reader for the modulator objects ({"0":{"control":"cutoff","rate":2},...}): flat key/value
 // pairs per inner object, in order. Values are numbers or strings.
