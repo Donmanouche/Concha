@@ -452,6 +452,10 @@ bool SoundConverter::convertControls(const PatternEvent& e, sd::SoundParams& out
         if (known || startsWith(key, "__")) continue;
         for (const char* h : kHandled)
             if (key == h) known = true;
+        if (const ParamValue* type = e.find("__type"); type && type->string == "zzfx") // rendered by sounds.mjs
+            for (const char* z : {"zrand", "curve", "slide", "deltaSlide", "pitchJump", "pitchJumpTime", "lfo", "znoise", "zmod",
+                                  "zcrush", "zdelay", "tremolo", "zzfx"})
+                if (key == z) known = true;
         if (key == "ftype") {
             if (v.type == ParamValue::Type::Number) {
                 const int i = int(std::floor(std::fmod(std::fmod(v.number, 3.0) + 3.0, 3.0)));
@@ -658,6 +662,13 @@ bool SoundConverter::convert(const PatternEvent& e, sd::SoundParams& out, std::v
     const Report report = [&](const std::string& key, const std::string& message) {
         if (reported.insert(key).second) log.push_back(message);
     };
+    // a pitch that is not a number (freq() of a control pattern, arithmetic gone wrong): WebAudio
+    // refuses a non-finite frequency, so the note is silent in superdough; here it is skipped
+    for (const char* k : {"__freq", "freq", "__midinote"})
+        if (const ParamValue* f = e.find(k); f && f->type == ParamValue::Type::Number && !std::isfinite(f->number)) {
+            report(std::string("nanfreq:") + k, "[superdough C++] a note's frequency is not a number: skipped");
+            return false;
+        }
     if (!convertControls(e, out, report)) return false;
     std::vector<std::string> modIds; // "lfo_<id>" / "env_<id>" / "bmod_<id>" of each modulator slot
     // FX chain stages (each runs superdough's whole effect block before the value's own effects)

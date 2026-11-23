@@ -86,6 +86,8 @@ struct Oscillator {
     {
         const double sr = waves.sampleRate();
         const double nyq = sr * 0.5;
+        if (!std::isfinite(frequency)) frequency = 0.0; // a NaN would index the tables anywhere
+        if (!std::isfinite(phase)) phase = 0.0;
         if (frequency > nyq) frequency = nyq;
         if (frequency < -nyq) frequency = -nyq;
         float out;

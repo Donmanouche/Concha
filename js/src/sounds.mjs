@@ -280,7 +280,10 @@ export function resolveSound(value, timing = {}) {
     warnOnce(`missing:${s}`, `[superdough] sound ${s} not found! Is it loaded?`);
     return { ...value, __type: 'skip' };
   }
-  const out = { ...value, s, __type: sound.type, __s: String(s).toLowerCase() };
+  // the C++ engine finds synths, noises, zzfx, soundfonts and SynthDefs by name: an alias
+  // (soundAlias('superpiano', 'piano2')) plays the original's; samples carry their own URL
+  const byName = sound.type !== 'sample' && sound.type !== 'wavetable';
+  const out = { ...value, s, __type: sound.type, __s: String(byName && sound.name ? sound.name : s).toLowerCase() };
   if (value.workletSrc !== undefined) {
     try {
       out.__kabel = compileKabel(value, getFrequencyFromValue(value));
